@@ -1,0 +1,24 @@
+{
+  "name": "sco-pe",
+  "version": "0.1.0",
+  "description": "Scoped elements for your apps",
+  "main": "index.js",
+  "keywords": [],
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "esbuild --bundle --minify --format=esm --sourcemap sco-pe.js --outfile=sco-pe.min.js",
+    "start": "npm run build -- --servedir=./",
+    "watch": "npm run build -- --watch",
+    "check": "npx rome check src/",
+    "format": "npx rome format src/ --write",
+    "update-deps": "npx npm-check-updates -u",
+    "bump": "npm run build-all && npm version patch",
+    "jsdoc": "npx jsdoc-to-markdown src/Scope.js"
+  },
+  "author": "LeKoala",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lekoala/sco-pe"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>sco-pe</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/demo.css">
+
+    <script type="module" src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha2/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/last-icon@2.1/last-icon.js"></script>
+    <script type="module" src="../sco-pe.js"></script>
+</head>
+
+<body>
+    <div class="container">
+        <h1>External controls</h1>
+
+        <sco-pe id="filter-scope">
+            <div class="input-group mb-3">
+                <input type="search" class="form-control" placeholder="Filter table" data-scope-on="input"
+                    data-scope-action="partials/external-controls-filter.html">
+            </div>
+        </sco-pe>
+        <sco-pe id="table-scope">
+            <div class="table-holder">
+                <table class="table" style="table-layout:fixed">
+                    <thead>
+                        <tr>
+                            <th scope="col">#</th>
+                            <th scope="col">First</th>
+                            <th scope="col">Last</th>
+                            <th scope="col">Handle</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <th scope="row">1</th>
+                            <td>Mark</td>
+                            <td>Otto</td>
+                            <td>@mdo</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">2</th>
+                            <td>Jacob</td>
+                            <td>Thornton</td>
+                            <td>@fat</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">3</th>
+                            <td colspan="2">Larry the Bird</td>
+                            <td>@twitter</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </sco-pe>
+        <sco-pe id="nav-scope" data-history="false">
+            <nav aria-label="Page navigation example">
+                <ul class="pagination">
+                    <li class="page-item disabled"><a class="page-link" href="partials/external-controls-p1.html"><l-i name="chevron-left"
+                                set="bs"></l-i> Previous</a></li>
+                    <li class="page-item active" aria-current="page"><a class="page-link" href="partials/external-controls-p1.html">1</a>
+                    </li>
+                    <li class="page-item"><a class="page-link" href="partials/external-controls-p2.html">2</a></li>
+                    <li class="page-item"><a class="page-link" href="partials/external-controls-p3.html">3</a></li>
+                    <li class="page-item"><a class="page-link" href="partials/external-controls-p2.html">Next <l-i name="chevron-right"
+                                set="bs"></l-i></a></li>
+                </ul>
+            </nav>
+        </sco-pe>
+    </div>
+</body>
+
+</html>

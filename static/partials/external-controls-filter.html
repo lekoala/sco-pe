@@ -1,0 +1,37 @@
+<sco-pe id="table-scope">
+    <table class="table" style="table-layout:fixed">
+        <thead>
+            <tr>
+                <th scope="col">#</th>
+                <th scope="col">First</th>
+                <th scope="col">Last</th>
+                <th scope="col">Handle</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <th scope="row">2</th>
+                <td>Jacob</td>
+                <td>Thornton</td>
+                <td>@fat</td>
+            </tr>
+        </tbody>
+    </table>
+    <p class="alert alert-info">Results of this table are filtered. This page should be generated dynamically based on value query.</p>
+</sco-pe>
+
+<sco-pe id="nav-scope">
+    <nav aria-label="Page navigation example">
+        <ul class="pagination">
+            <li class="page-item disabled"><a class="page-link" href="external-controls.html"><l-i name="chevron-left"
+                        set="bs"></l-i> Previous</a></li>
+            <li class="page-item disabled" aria-current="page"><a class="page-link" href="external-controls.html">1</a></li>
+            <li class="page-item disabled"><a class="page-link" href="external-controls.html">Next <l-i name="chevron-right"
+                set="bs"></l-i></a></li>
+        </ul>
+    </nav>
+
+    <hr>
+
+    <a href="external-controls.html">Clear filters</a>
+</sco-pe>
