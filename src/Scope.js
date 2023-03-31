@@ -103,8 +103,8 @@ function getHistory(el, parentScope = null) {
   let history = "true";
   if (el.dataset.scopeHistory) {
     history = el.dataset.scopeHistory;
-  } else if (parentScope && parentScope.dataset.history) {
-    history = parentScope.dataset.history;
+  } else if (parentScope && parentScope.dataset.scopeHistory) {
+    history = parentScope.dataset.scopeHistory;
   }
   return parseBool(history);
 }
@@ -245,7 +245,7 @@ class Scope extends HTMLElement {
     }
 
     // Don't handle events if disabled
-    if (parseBool(this.dataset.disabled)) {
+    if (parseBool(this.dataset.scopeDisabled)) {
       return;
     }
 
@@ -305,27 +305,40 @@ class Scope extends HTMLElement {
     // Build url
     let action = getAction(el);
     let url = new URL(action, window.location.href).href; // make absolute
-    let fullUrl = url;
-    // Update history for links for named scopes
+    let urlWithParams = url;
     const isLink = el.nodeName === "A";
+    const method = (
+      el.getAttribute("method") ||
+      el.dataset.scopeMethod ||
+      "GET"
+    ).toUpperCase();
+    // Update history for links for named scopes
     let pushToHistory =
       isLink && getHistory(el, this) && this.hasAttribute("id");
+    let postBody;
+
     // Pass along current query string and params for elements with value
     const searchParams = new URLSearchParams(window.location.search);
     //@ts-ignore
     const elValue = el.value !== "undefined" ? el.value : el.dataset.scopeValue;
     if (typeof elValue !== "undefined") {
       searchParams.set("value", elValue);
-      fullUrl = `${url}?${searchParams.toString()}`;
-      pushToHistory = false;
+      urlWithParams = `${url}?${searchParams.toString()}`;
+      postBody = searchParams;
+    }
+
+    // Pass form data
+    if (el instanceof HTMLFormElement) {
+      const formData = new FormData(el);
+      postBody = formData;
     }
 
     // Do we target a specific scope ?
     // Always use GET request for sco-pe requests and delegate loading to instance
-    const target = el.dataset.scopeTarget || this.dataset.target;
+    const target = el.dataset.scopeTarget || this.dataset.scopeTarget;
     if (target && target !== "_self") {
       log(`Loading partial document into scope ${target}`);
-      document.getElementById(target).setAttribute("src", fullUrl);
+      document.getElementById(target).setAttribute("src", urlWithParams);
       return;
     }
 
@@ -343,11 +356,11 @@ class Scope extends HTMLElement {
       });
       el.classList.add(config.activeClass);
     }
-    const method = el.dataset.scopeMethod || "GET";
+
     if (method === "GET") {
-      url = fullUrl;
+      url = urlWithParams;
     }
-    const body = method === "POST" ? searchParams : null;
+    const body = method === "POST" ? postBody : null;
     await this.loadURL(url, {
       method,
       body,
@@ -374,6 +387,12 @@ class Scope extends HTMLElement {
       fetchOptions
     );
     const response = await fetch(url, options);
+    if (!response.ok) {
+      const message =
+        response.headers.get(config.statusHeader) || response.statusText;
+      config.statusHandler(message, response.status);
+      return;
+    }
     this.processHeaders(response);
     const data = await response.text();
     this.processResponse(data);
@@ -584,6 +603,7 @@ class Scope extends HTMLElement {
   afterLoad() {
     this.listenToEvents();
 
+    // Mark active class in any link matching href
     this.querySelectorAll(`a`).forEach((a) => {
       const url = expandURL(a.getAttribute("href"));
       if (url.toString() == document.location.href) {

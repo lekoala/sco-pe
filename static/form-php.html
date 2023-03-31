@@ -17,7 +17,6 @@
     <script type="module" src="/sco-pe.js"></script>
 
     <script type="module">
-        // Loop over them and prevent submission
         document.querySelectorAll('.needs-validation').forEach(form => {
             form.addEventListener('submit', event => {
                 if (!form.checkValidity()) {
@@ -32,6 +31,7 @@
         customElements.whenDefined("sco-pe").then(() => {
             // Access through registry
             customElements.get("sco-pe").configure({
+                debug: true,
                 statusHandler: (msg, code) => {
                     if (code && code === 200) {
                         Toasts.success(msg);
@@ -50,63 +50,17 @@
         <h1>Form demo</h1>
 
         <sco-pe id="forms">
-            <form action="partials/submit-form.html">
-                <div class="mb-3">
-                    <label for="exampleInputEmail1" class="form-label">Email address</label>
-                    <input type="email" class="form-control" id="exampleInputEmail1" aria-describedby="emailHelp">
-                    <div id="emailHelp" class="form-text">We'll never share your email with anyone else.</div>
-                </div>
-                <div class="mb-3">
-                    <label for="exampleInputPassword1" class="form-label">Password</label>
-                    <input type="password" class="form-control" id="exampleInputPassword1">
-                </div>
-                <div class="mb-3 form-check">
-                    <input type="checkbox" class="form-check-input" id="exampleCheck1">
-                    <label class="form-check-label" for="exampleCheck1">Check me out</label>
-                </div>
-                <button type="submit" class="btn btn-primary">Submit</button>
-            </form>
-
-            <hr>
-
-            <form action="partials/submit-form.html">
-                <fieldset disabled>
-                    <legend>Disabled fieldset example</legend>
-                    <div class="mb-3">
-                        <label for="disabledTextInput" class="form-label">Disabled input</label>
-                        <input type="text" id="disabledTextInput" class="form-control" placeholder="Disabled input">
-                    </div>
-                    <div class="mb-3">
-                        <label for="disabledSelect" class="form-label">Disabled select menu</label>
-                        <select id="disabledSelect" class="form-select">
-                            <option>Disabled select</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="disabledFieldsetCheck" disabled>
-                            <label class="form-check-label" for="disabledFieldsetCheck">
-                                Can't check this
-                            </label>
-                        </div>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Submit</button>
-                </fieldset>
-            </form>
-
-            <hr>
-
-            <form action="partials/submit-form.html" method="post" class="row g-3 needs-validation" novalidate>
+            <form action="php/form.php" method="post" class="row g-3 needs-validation" novalidate>
                 <div class="col-md-4">
                     <label for="validationCustom01" class="form-label">First name</label>
-                    <input type="text" class="form-control" id="validationCustom01" value="Mark" required>
+                    <input type="text" name="fname" class="form-control" id="validationCustom01" value="Mark" required>
                     <div class="valid-feedback">
                         Looks good!
                     </div>
                 </div>
                 <div class="col-md-4">
                     <label for="validationCustom02" class="form-label">Last name</label>
-                    <input type="text" class="form-control" id="validationCustom02" value="Otto" required>
+                    <input type="text" name="lname" class="form-control" id="validationCustom02" value="Otto" required>
                     <div class="valid-feedback">
                         Looks good!
                     </div>
@@ -115,7 +69,7 @@
                     <label for="validationCustomUsername" class="form-label">Username</label>
                     <div class="input-group has-validation">
                         <span class="input-group-text" id="inputGroupPrepend">@</span>
-                        <input type="text" class="form-control" id="validationCustomUsername" aria-describedby="inputGroupPrepend" required>
+                        <input type="text" name="username" class="form-control" id="validationCustomUsername" aria-describedby="inputGroupPrepend" required>
                         <div class="invalid-feedback">
                             Please choose a username.
                         </div>
@@ -123,14 +77,14 @@
                 </div>
                 <div class="col-md-6">
                     <label for="validationCustom03" class="form-label">City</label>
-                    <input type="text" class="form-control" id="validationCustom03" required>
+                    <input type="text" name="city" class="form-control" id="validationCustom03" required>
                     <div class="invalid-feedback">
                         Please provide a valid city.
                     </div>
                 </div>
                 <div class="col-md-3">
                     <label for="validationCustom04" class="form-label">State</label>
-                    <select class="form-select" id="validationCustom04" required>
+                    <select class="form-select" name="state" id="validationCustom04" required>
                         <option selected disabled value="">Choose...</option>
                         <option>...</option>
                     </select>
@@ -140,7 +94,7 @@
                 </div>
                 <div class="col-md-3">
                     <label for="validationCustom05" class="form-label">Zip</label>
-                    <input type="text" class="form-control" id="validationCustom05" required>
+                    <input type="text" name="zip" class="form-control" id="validationCustom05" required>
                     <div class="invalid-feedback">
                         Please provide a valid zip.
                     </div>
@@ -159,6 +113,18 @@
                 <div class="col-12">
                     <button class="btn btn-primary" type="submit">Submit form</button>
                 </div>
+            </form>
+
+            <hr>
+
+            <form action="php/form-redirect.php">
+                <input type="text" name="value"> <input type="submit" value="redirect">
+            </form>
+
+            <hr>
+
+            <form action="php/not-found.php">
+                <input type="text" name="value"> <input type="submit" value="error">
             </form>
         </sco-pe>
     </div>

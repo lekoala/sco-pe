@@ -2,6 +2,8 @@
 
 > Scoped elements for your apps
 
+WARNING: this is work in progress and may change at any time. Feedback is still welcome :-)
+
 ## How it works
 
 Divide your pages into fragments with `sco-pe` elements.

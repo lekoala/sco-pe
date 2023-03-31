@@ -13,7 +13,8 @@
     "format": "npx rome format src/ --write",
     "update-deps": "npx npm-check-updates -u",
     "bump": "npm run build-all && npm version patch",
-    "jsdoc": "npx jsdoc-to-markdown src/Scope.js"
+    "jsdoc": "npx jsdoc-to-markdown src/Scope.js",
+    "local-server": "php -S localhost:8002 -t ."
   },
   "author": "LeKoala",
   "repository": {
