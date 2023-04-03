@@ -38,13 +38,35 @@ let config = {
   statusHandler: (message, statusCode) => {
     alert(message);
   },
-  onLoad: (scope) => {},
+  onLoad: () => {},
 };
 
 /**
  * @type {AbortController}
  */
 let globalAbortController = null;
+
+/**
+ * @type {Number}
+ */
+let scriptsLoading = 0;
+/**
+ * @type {Array}
+ */
+let pendingInlineScripts = [];
+/**
+ * @type {Array}
+ */
+let pendingExternalScripts = [];
+
+/**
+ * @type {Number}
+ */
+let scopesLoading = 0;
+
+let scopesLoadingTimeout;
+
+let pageLoaded = false;
 
 /**
  * @param {HTMLElement} el
@@ -131,7 +153,8 @@ function isNodeEmpty(node) {
  * @returns {URL}
  */
 function expandURL(url) {
-  return new URL(url.toString(), document.baseURI);
+  const str = url ? url.toString() : "#";
+  return new URL(str, document.baseURI);
 }
 
 /**
@@ -139,6 +162,9 @@ function expandURL(url) {
  * @returns {Boolean}
  */
 function isExternalURL(url) {
+  if (!url) {
+    return;
+  }
   return expandURL(url).origin !== location.origin;
 }
 
@@ -147,6 +173,9 @@ function isExternalURL(url) {
  * @returns {String}
  */
 function getAnchor(url) {
+  if (!url) {
+    return;
+  }
   let anchorMatch;
   if (url.hash) {
     return url.hash.slice(1);
@@ -201,6 +230,8 @@ window.addEventListener("popstate", (event) => {
    */
   const scope = document.querySelector(`sco-pe[id="${id}"]`);
   if (!scope) {
+    // Do a full page load
+    window.location.replace(document.location.toString());
     return;
   }
   log(`Restore location from history`);
@@ -351,10 +382,7 @@ class Scope extends HTMLElement {
       history.pushState(state, null, url);
     }
     if (isLink) {
-      this.querySelectorAll(`.${config.activeClass}`).forEach((el) => {
-        el.classList.remove(config.activeClass);
-      });
-      el.classList.add(config.activeClass);
+      this.setActive(el);
     }
 
     if (method === "GET") {
@@ -368,11 +396,23 @@ class Scope extends HTMLElement {
   }
 
   /**
+   * @param {HTMLElement} el
+   */
+  setActive(el) {
+    this.querySelectorAll(`.${config.activeClass}`).forEach((el) => {
+      el.classList.remove(config.activeClass);
+    });
+    el.classList.add(config.activeClass);
+  }
+
+  /**
    * @param {String} url
    * @param {Object} fetchOptions
    */
   async loadURL(url, fetchOptions = {}) {
     if (!fetchOptions.signal) {
+      log(`GET ${url}`);
+      pageLoaded = false;
       // If not targeting a specific scope, we use a global context
       if (globalAbortController) {
         globalAbortController.abort();
@@ -451,19 +491,87 @@ class Scope extends HTMLElement {
     }
   }
 
+  /**
+   * @param {HTMLBodyElement} body
+   */
+  processBody(body) {
+    document.body.style.cssText = body.style.cssText;
+    const attrs = ["class"];
+    attrs.forEach((attr) => {
+      document.body.setAttribute(attr, body.getAttribute("class"));
+    });
+  }
+
+  /**
+   * @param {String} src
+   * @param {String} type
+   * @returns {Boolean} Is a new script created?
+   */
   _loadScript(src, type = null) {
     if (!type) {
       type = "text/javascript";
     }
     const existingScript = document.querySelector(`script[src="${src}"]`);
     if (existingScript) {
+      return false;
+    }
+    scriptsLoading++;
+    log(`Loading script ${src}`);
+    pendingExternalScripts.push({
+      type,
+      src,
+    });
+    return true;
+  }
+
+  /**
+   * Scripts needs to load sequentially to respect dependencies
+   */
+  _processScriptsQueue() {
+    const allLoaded = pendingExternalScripts.length === 0;
+    const script = pendingExternalScripts.shift();
+    if (allLoaded) {
+      this._processInlineQueue();
+      log(`All scripts loaded`);
       return;
     }
-    log(`Loading script ${src}`);
     const newScript = document.createElement("script");
-    newScript.setAttribute("type", type);
-    newScript.setAttribute("src", src);
+    newScript.setAttribute("type", script.type);
+    newScript.setAttribute("src", script.src);
+    newScript.onload = newScript.onerror = (ev) => {
+      log(`Loaded script ${script.src}`);
+      this._processScriptsQueue();
+    };
     document.head.appendChild(newScript);
+  }
+
+  _loadInlineScript(content, type = "application/javascript", id = null) {
+    log(`Loading inline script`);
+    const inlineScript = document.createElement("script");
+    inlineScript.setAttribute("type", type);
+    inlineScript.setAttribute("id", id);
+    inlineScript.innerHTML = content;
+
+    const existingInlineScript = document.querySelector(`script[id="${id}"]`);
+    // Scripts get executed each time on load
+    if (existingInlineScript) {
+      existingInlineScript.replaceWith(inlineScript);
+    } else {
+      document.head.appendChild(inlineScript);
+    }
+  }
+
+  _processInlineQueue() {
+    log(`Executing ${pendingInlineScripts.length} inline scripts`);
+    pendingInlineScripts.forEach((script) => {
+      this._loadInlineScript(script.content, script.type, script.id);
+    });
+    pendingInlineScripts = [];
+
+    // Execute global onLoad. It must happen only once per "load" event,
+    // which can be multiple scopes or only a partial scope
+    log(`Calling global onload`);
+    config.onLoad();
   }
 
   _loadStyle(href) {
@@ -478,6 +586,10 @@ class Scope extends HTMLElement {
     document.head.appendChild(newStyle);
   }
 
+  /**
+   * @param {DocumentFragment} doc
+   * @returns {Boolean}
+   */
   processScriptsAndStyles(doc) {
     // Make sure our existing inline scripts & styles have a custom id
     document
@@ -489,6 +601,7 @@ class Scope extends HTMLElement {
       });
 
     // Append new styles and scripts
+    let canTriggerImmediately = true;
     doc.querySelectorAll("script").forEach((script) => {
       const src = script.getAttribute("src");
       const type = script.type || "text/javascript";
@@ -502,21 +615,27 @@ class Scope extends HTMLElement {
         if (existingInlineScript && script.getAttribute("id")) {
           return;
         }
-        log(`Loading inline script`);
-        const inlineScript = document.createElement("script");
-        inlineScript.setAttribute("type", type);
-        inlineScript.setAttribute("id", id);
-        inlineScript.innerHTML = script.innerHTML;
-        if (existingInlineScript) {
-          existingInlineScript.replaceWith(inlineScript);
-        } else {
-          document.head.appendChild(inlineScript);
-        }
+        const content = script.innerHTML;
+        // Inline module script are executed immediately and don't respect order, so we need to execute them later
+        pendingInlineScripts.push({
+          content,
+          type,
+          id,
+        });
       } else {
-        this._loadScript(src, type);
+        const isNew = this._loadScript(src, type);
+        if (isNew) {
+          canTriggerImmediately = false;
+        }
       }
     });
+    this._processScriptsQueue();
+    log(
+      `There are ${pendingInlineScripts.length} pending inline scripts (${canTriggerImmediately})`
+    );
 
+    // Obviously order can get tricky here, namespace as needed to avoid collisions
+    // or avoid scope pollution
     doc.querySelectorAll('style,link[rel="stylesheet"]').forEach((style) => {
       const href = style.getAttribute("href");
       if (!href) {
@@ -536,6 +655,8 @@ class Scope extends HTMLElement {
         this._loadStyle(href);
       }
     });
+
+    return canTriggerImmediately;
   }
 
   /**
@@ -548,72 +669,134 @@ class Scope extends HTMLElement {
     // It may contain one or more sco-pe to replace
     const containsScope = data.indexOf("<sco-pe") !== -1;
 
+    const tmp = htmlToDocument(data);
+    const canTriggerImmediately = this.processScriptsAndStyles(tmp);
+
     if (isFull || containsScope) {
       log(`Loading scopes ${isFull ? "(full)" : "(partial)"}`);
-
-      const tmp = htmlToDocument(data);
 
       const head = tmp.querySelector("head");
       if (head) {
         this.processHead(head);
       }
-      this.processScriptsAndStyles(tmp);
+      const body = tmp.querySelector("body");
+      if (body) {
+        this.processBody(body);
+      }
 
-      // Replace any matching sco-pe by id
       const scopes = tmp.querySelectorAll("sco-pe");
-      scopes.forEach((newScope) => {
-        const id = newScope.getAttribute("id");
-        if (!id) {
-          log(`Scope without id`);
-          return;
+
+      // No scopes ? replace body
+      if (!scopes.length) {
+        document.body.innerHTML = data;
+        this.checkScopesAreLoaded(canTriggerImmediately);
+      }
+
+      // Scopes are never replaced because maybe we have configured listeners on them
+      // We expect that they get the same attributes except src that can change
+      scopes.forEach(
+        /**
+         * @param {Scope} newScope
+         */
+        (newScope) => {
+          const id = newScope.getAttribute("id");
+          if (!id) {
+            log(`Scope without id`);
+            return;
+          }
+          const src = newScope.getAttribute("src");
+          if (isNodeEmpty(newScope) && !src) {
+            log(`Empty scope for ${id}`);
+            return;
+          }
+          /**
+           * @type {Scope}
+           */
+          //@ts-ignore
+          const oldScope = document.getElementById(id);
+          if (!oldScope) {
+            log(`No matching scope for ${id}`);
+            return;
+          }
+          if (
+            src &&
+            expandURL(src).toString() === expandURL(oldScope.src).toString()
+          ) {
+            log(`Url has not changed for ${id}`);
+            return;
+          }
+          log(`Replacing ${id} content`);
+          if (src) {
+            oldScope.src = src;
+            // afterLoad will happen automatically through connectedCallback
+          } else {
+            oldScope.innerHTML = newScope.innerHTML;
+            this.afterLoad(canTriggerImmediately);
+          }
         }
-        if (isNodeEmpty(newScope)) {
-          log(`Empty scope for ${id}`);
-          return;
-        }
-        const oldScope = document.getElementById(id);
-        if (!oldScope) {
-          log(`No matching scope for ${id}`);
-          return;
-        }
-        log(`Replacing ${id}`);
-        oldScope.outerHTML = newScope.outerHTML;
-        // afterLoad will happen automatically through connectedCallback
-      });
+      );
     } else {
-      log(`Loading partial document into self`);
+      log(`Loading partial document into self ${this.id}`);
       this.innerHTML = data;
-      this.afterLoad();
+      this.afterLoad(canTriggerImmediately);
     }
   }
 
+  /**
+   * Load src. You can check if there is server provided content
+   * to avoid a fetch request (only used in connectedCallback)
+   *
+   * @param {Boolean} check Check if there is existing content
+   */
   async loadContent(check = false) {
     const src = this.src;
     const preventLoading = check && !isNodeEmpty(this);
     if (src && !preventLoading) {
+      this.classList.add("scope-loading");
+      this.classList.remove("scope-loaded");
+
       this.abortLoading();
       this.abortController = new AbortController();
       await this.loadURL(src, {
         signal: this.abortController.signal,
       });
+    } else {
+      this.afterLoad(true);
     }
-    this.afterLoad();
   }
 
-  afterLoad() {
+  afterLoad(canTriggerImmediately = false) {
     this.listenToEvents();
 
     // Mark active class in any link matching href
-    this.querySelectorAll(`a`).forEach((a) => {
-      const url = expandURL(a.getAttribute("href"));
+    this.querySelectorAll(`a`).forEach((el) => {
+      const url = expandURL(el.getAttribute("href"));
       if (url.toString() == document.location.href) {
-        a.classList.add(config.activeClass);
+        this.setActive(el);
       }
     });
 
-    config.onLoad(this);
     this.classList.remove("scope-loading");
     this.classList.add("scope-loaded");
+    this.dispatchEvent(new CustomEvent("scope-loaded"));
+
+    // We have only one callback to avoid calling this multiple times
+    this.checkScopesAreLoaded(canTriggerImmediately);
+  }
+
+  checkScopesAreLoaded(canTriggerImmediately) {
+    if (scopesLoadingTimeout) {
+      clearTimeout(scopesLoadingTimeout);
+    }
+    scopesLoadingTimeout = setTimeout(() => {
+      scopesLoading = document.querySelectorAll(
+        "sco-pe:not(.scope-loaded)"
+      ).length;
+      if (!scopesLoading && canTriggerImmediately) {
+        this._processInlineQueue();
+        log(`All scripts loaded (no scripts to load)`);
+      }
+    });
   }
 
   listenToEvents() {
@@ -674,11 +857,12 @@ class Scope extends HTMLElement {
   }
 
   connectedCallback() {
-    this.classList.add("scope-loading");
-
     // delay execution until the Event Loop is done and all DOM is parsed
     // @link https://stackoverflow.com/questions/70949141/web-components-accessing-innerhtml-in-connectedcallback/75402874
     setTimeout(() => {
+      scopesLoading = document.querySelectorAll(
+        "sco-pe:not(.scope-loaded)"
+      ).length;
       // content can be provided by server rendering, in this case, don't load
       this.loadContent(true);
       this.init = true;
