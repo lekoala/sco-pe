@@ -40,12 +40,15 @@ If you rely on page load, you need to add your scripts to onLoad property
 customElements.whenDefined("sco-pe").then(() => {
   // Access through registry
   customElements.get("sco-pe").configure({
-    onLoad: (el) => {
+    onLoad: () => {
         el.querySelector...
     },
   });
 });
 ```
+
+onLoad events is triggered after all scripts are executed (external, in order, and inline) and when all scopes are loaded.
+It behaves pretty much like a DOMContentLoaded event.
 
 Note that it would probably be much easier to use [self initializing elements instead](https://github.com/lekoala/modular-behaviour.js)
 
