@@ -115,11 +115,7 @@ function getEvents(el) {
  * @returns {String}
  */
 function getAction(el) {
-  return (
-    el.getAttribute("action") ||
-    el.dataset.scopeAction ||
-    el.getAttribute("href")
-  );
+  return el.getAttribute("action") || el.dataset.scopeAction || el.getAttribute("href");
 }
 
 /**
@@ -381,12 +377,7 @@ class Scope extends HTMLElement {
       }
       const action = getAction(trigger);
       // Ignore empty, external and anchors links
-      if (
-        !action ||
-        hasBlankTarget(trigger) ||
-        isExternalURL(action) ||
-        isAnchorURL(action)
-      ) {
+      if (!action || hasBlankTarget(trigger) || isExternalURL(action) || isAnchorURL(action)) {
         return;
       }
       log(`Handling ${ev.type} on ${trigger.nodeName}`);
@@ -434,14 +425,9 @@ class Scope extends HTMLElement {
     //@ts-ignore
     const submitter = ev.submitter || null;
     const hint = el.dataset.scopeHint; // helps to determine fetch target, this by default
-    const method = (
-      el.getAttribute("method") ||
-      el.dataset.scopeMethod ||
-      "GET"
-    ).toUpperCase();
+    const method = (el.getAttribute("method") || el.dataset.scopeMethod || "GET").toUpperCase();
     // Update history for links for named scopes
-    let pushToHistory =
-      isLink && getHistory(el, this) && this.hasAttribute("id");
+    let pushToHistory = isLink && getHistory(el, this) && this.hasAttribute("id");
     let postBody;
 
     // Forms need some love
@@ -479,13 +465,7 @@ class Scope extends HTMLElement {
     }
 
     if (pushToHistory) {
-      const id = this.getAttribute("id");
-      const state = {
-        id,
-        url,
-        hint,
-      };
-      history.pushState(state, null, url);
+      this.updateHistory(url, hint);
     }
     if (isLink) {
       this.setActive(el);
@@ -507,6 +487,16 @@ class Scope extends HTMLElement {
     if (submitter) {
       submitter.removeAttribute("disabled");
     }
+  }
+
+  updateHistory(url, hint) {
+    const id = this.getAttribute("id");
+    const state = {
+      id,
+      url,
+      hint,
+    };
+    history.pushState(state, null, url);
   }
 
   /**
@@ -557,9 +547,12 @@ class Scope extends HTMLElement {
 
     try {
       const response = await fetch(url, options);
+      if (response.redirected) {
+        // TODO: check if we should always do this ?
+        this.updateHistory(response.url, hint);
+      }
       if (!response.ok) {
-        const message =
-          response.headers.get(config.statusHeader) || response.statusText;
+        const message = response.headers.get(config.statusHeader) || response.statusText;
         config.statusHandler(message, response.status);
         return;
       }
@@ -575,7 +568,7 @@ class Scope extends HTMLElement {
       }
     }
 
-    loadTarget.classList.add("scope-fetching");
+    loadTarget.classList.remove("scope-fetching");
   }
 
   /**
@@ -647,10 +640,7 @@ class Scope extends HTMLElement {
   _processDocument(doc) {
     const attrs = ["class"];
     attrs.forEach((attr) => {
-      document.documentElement.setAttribute(
-        attr,
-        doc.documentElement.getAttribute(attr) || ""
-      );
+      document.documentElement.setAttribute(attr, doc.documentElement.getAttribute(attr) || "");
     });
 
     for (const d in doc.documentElement.dataset) {
@@ -747,9 +737,7 @@ class Scope extends HTMLElement {
       inlineScript.setAttribute("id", script.id);
       inlineScript.innerHTML = script.content;
 
-      const existingInlineScript = document.querySelector(
-        `script[id="${script.id}"]`
-      );
+      const existingInlineScript = document.querySelector(`script[id="${script.id}"]`);
       // Scripts get executed each time on load
       if (existingInlineScript) {
         existingInlineScript.replaceWith(inlineScript);
@@ -783,18 +771,16 @@ class Scope extends HTMLElement {
    */
   _processScriptsAndStyles(doc) {
     // Make sure our existing inline scripts & styles have a custom id
-    document
-      .querySelectorAll("script:not([src]):not([id]),style:not([id])")
-      .forEach(
-        /**
-         * @param {HTMLScriptElement|HTMLStyleElement} el
-         */
-        (el) => {
-          const hash = simpleHash(el.innerHTML);
-          const id = `${el.nodeName.toLowerCase()}-${hash}`;
-          el.setAttribute("id", id);
-        }
-      );
+    document.querySelectorAll("script:not([src]):not([id]),style:not([id])").forEach(
+      /**
+       * @param {HTMLScriptElement|HTMLStyleElement} el
+       */
+      (el) => {
+        const hash = simpleHash(el.innerHTML);
+        const id = `${el.nodeName.toLowerCase()}-${hash}`;
+        el.setAttribute("id", id);
+      }
+    );
 
     // Append new styles and scripts
     let canTriggerImmediately = true;
@@ -815,9 +801,7 @@ class Scope extends HTMLElement {
     if (!canTriggerImmediately) {
       this._processScriptsQueue();
     }
-    log(
-      `There are ${pendingInlineScripts.length} pending inline scripts (${canTriggerImmediately})`
-    );
+    log(`${pendingInlineScripts.length} pending inline scripts ${canTriggerImmediately ? "(can trigger immediately)" : ""}`);
 
     // Obviously order can get tricky here, namespace as needed to avoid collisions
     // or avoid scope pollution
@@ -906,10 +890,7 @@ class Scope extends HTMLElement {
             log(`No matching scope for ${id}`);
             return;
           }
-          if (
-            src &&
-            expandURL(src).toString() === expandURL(oldScope.src).toString()
-          ) {
+          if (src && expandURL(src).toString() === expandURL(oldScope.src).toString()) {
             log(`Url has not changed for ${id}`);
             return;
           }
@@ -926,7 +907,7 @@ class Scope extends HTMLElement {
       // Scroll top
       document.scrollingElement.scrollTo(0, 0);
     } else {
-      log(`Loading partial document into self ${this.id}`);
+      log(`Loading partial document into self (${this.id})`);
       this.innerHTML = fragmentToString(tmp);
       this._afterLoad();
       scrollIntoParentView(this);
@@ -971,6 +952,7 @@ class Scope extends HTMLElement {
       }
     });
 
+    this.classList.remove("scope-fetching");
     this.classList.add("scope-loaded");
     this.dispatchEvent(new CustomEvent("scope-loaded"));
     config.onScopeLoad(this);
@@ -984,8 +966,7 @@ class Scope extends HTMLElement {
       clearTimeout(scopesLoadingTimeout);
     }
     scopesLoadingTimeout = setTimeout(() => {
-      allScopesLoaded =
-        document.querySelectorAll("sco-pe:not(.scope-loaded)").length === 0;
+      allScopesLoaded = document.querySelectorAll("sco-pe:not(.scope-loaded)").length === 0;
       if (allScopesLoaded && allScriptsLoaded) {
         this._processInlineScriptsQueue();
         log(`All scripts loaded (no scripts to load)`);
@@ -1036,6 +1017,7 @@ class Scope extends HTMLElement {
     // delay execution until the Event Loop is done and all DOM is parsed
     // @link https://stackoverflow.com/questions/70949141/web-components-accessing-innerhtml-in-connectedcallback/75402874
     setTimeout(async () => {
+      log(`Scope init ${this.id || "(no id)"}`);
       // content can be provided by server rendering, in this case, don't load
       await this.loadContent(true);
       this.init = true;
