@@ -1,0 +1,2 @@
+@-webkit-keyframes scopeShow{0%{opacity:1}100%{opacity:.5}}@keyframes scopeShow{0%{opacity:1}100%{opacity:.5}}sco-pe{transition:opacity .5s ease-out;opacity:0}sco-pe.scope-loaded{opacity:1}sco-pe.scope-fetching{opacity:1;-webkit-animation-name:scopeShow;animation-name:scopeShow;-webkit-animation-timing-function:ease-in;animation-timing-function:ease-in;-webkit-animation-fill-mode:forwards;animation-fill-mode:forwards;-webkit-animation-duration:.3s;animation-duration:.3s;pointer-events:none}
+/*# sourceMappingURL=sco-pe.min.css.map */
