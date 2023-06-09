@@ -34,7 +34,7 @@
 /**
  * @typedef ScopeConfig
  * @property {Boolean} debug
- * @property {Number} debounceTime
+ * @property {Number} loadDelay
  * @property {String} activeClass
  * @property {String} reloadHeader
  * @property {String} titleHeader
@@ -48,7 +48,7 @@
  */
 let config = {
   debug: false,
-  debounceTime: 300,
+  loadDelay: 300,
   activeClass: "active",
   reloadHeader: "X-Reload",
   titleHeader: "X-Title",
@@ -115,7 +115,11 @@ function getEvents(el) {
  * @returns {String}
  */
 function getAction(el) {
-  return el.getAttribute("action") || el.dataset.scopeAction || el.getAttribute("href");
+  return (
+    el.getAttribute("action") ||
+    el.dataset.scopeAction ||
+    el.getAttribute("href")
+  );
 }
 
 /**
@@ -126,13 +130,30 @@ function getAction(el) {
 function debounce(func, timeout = 300) {
   let timer;
   return (...args) => {
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       //@ts-ignore
       func.apply(this, args);
     }, timeout);
   };
 }
+
+/**
+ * @param {Function} func
+ * @param {number} timeFrame
+ * @returns {Function}
+ */
+// function throttle(func, timeFrame = 300) {
+//   var lastTime = 0;
+//   return (...args) => {
+//     var now = Date.now();
+//     if (now - lastTime >= timeFrame) {
+//       //@ts-ignore
+//       func.apply(this, args);
+//       lastTime = now;
+//     }
+//   };
+// }
 
 /**
  * @param {*} v
@@ -296,6 +317,49 @@ function log(message) {
   }
 }
 
+/**
+ * @param {HTMLElement} o
+ * @param {HTMLElement} n
+ */
+function replaceDom(o, n) {
+  const fragments = o.querySelectorAll("[data-scope-fragment]");
+  // No fragments, replace the whole thing
+  if (!fragments.length) {
+    log(`Replacing ${o.id} content`);
+    o.innerHTML = n.innerHTML;
+    return;
+  }
+  // Replace only if changed
+  fragments.forEach(
+    /**
+     * @param {HTMLElement} fragment
+     */
+    (fragment) => {
+      const sel = fragment.id
+        ? `#${fragment.id}`
+        : `.${fragment.classList.item(0)}`;
+      /**
+       * @type {HTMLElement}
+       */
+      const nid = n.querySelector(sel);
+      if (nid) {
+        const v = fragment.dataset.scopeFragment;
+        // You can use a hash value if your html has mutated and cannot be reliably compared with isEqualNode
+        const isChanged =
+          v.length > 0
+            ? v != nid.dataset.scopeFragment
+            : !fragment.isEqualNode(nid);
+        if (isChanged) {
+          log(`Replacing ${sel} fragment`);
+          fragment.innerHTML = nid.innerHTML;
+        }
+      } else if (!fragment.dataset.scopedFixed) {
+        fragment.remove();
+      }
+    }
+  );
+}
+
 // Make a full page load on back
 window.addEventListener("popstate", async (event) => {
   if (event.state) {
@@ -338,7 +402,7 @@ class Scope extends HTMLElement {
      */
     this.loadFunc = debounce((trigger, ev) => {
       this.load(trigger, ev);
-    }, config.debounceTime);
+    }, config.loadDelay);
   }
 
   /**
@@ -377,18 +441,31 @@ class Scope extends HTMLElement {
       }
       const action = getAction(trigger);
       // Ignore empty, external and anchors links
-      if (!action || hasBlankTarget(trigger) || isExternalURL(action) || isAnchorURL(action)) {
+      if (
+        !action ||
+        hasBlankTarget(trigger) ||
+        isExternalURL(action) ||
+        isAnchorURL(action)
+      ) {
         return;
       }
       log(`Handling ${ev.type} on ${trigger.nodeName}`);
       ev.preventDefault();
 
+      const debounced = [
+        "input",
+        "scroll",
+        "resize",
+        "mousemove",
+        "touchmove",
+        "keyup",
+        "keydown",
+      ];
       const load = () => {
-        // For click, no debounce
-        if (ev.type === "click") {
-          this.load(trigger, ev);
-        } else {
+        if (debounced.includes(ev.type)) {
           this.loadFunc(trigger, ev);
+        } else {
+          this.load(trigger, ev);
         }
       };
       // Check confirm ?
@@ -425,9 +502,14 @@ class Scope extends HTMLElement {
     //@ts-ignore
     const submitter = ev.submitter || null;
     const hint = el.dataset.scopeHint; // helps to determine fetch target, this by default
-    const method = (el.getAttribute("method") || el.dataset.scopeMethod || "GET").toUpperCase();
+    const method = (
+      el.getAttribute("method") ||
+      el.dataset.scopeMethod ||
+      "GET"
+    ).toUpperCase();
     // Update history for links for named scopes
-    let pushToHistory = isLink && getHistory(el, this) && this.hasAttribute("id");
+    let pushToHistory =
+      isLink && getHistory(el, this) && this.hasAttribute("id");
     let postBody;
 
     // Forms need some love
@@ -552,7 +634,8 @@ class Scope extends HTMLElement {
         this.updateHistory(response.url, hint);
       }
       if (!response.ok) {
-        const message = response.headers.get(config.statusHeader) || response.statusText;
+        const message =
+          response.headers.get(config.statusHeader) || response.statusText;
         config.statusHandler(message, response.status);
         return;
       }
@@ -640,7 +723,10 @@ class Scope extends HTMLElement {
   _processDocument(doc) {
     const attrs = ["class"];
     attrs.forEach((attr) => {
-      document.documentElement.setAttribute(attr, doc.documentElement.getAttribute(attr) || "");
+      document.documentElement.setAttribute(
+        attr,
+        doc.documentElement.getAttribute(attr) || ""
+      );
     });
 
     for (const d in doc.documentElement.dataset) {
@@ -737,7 +823,9 @@ class Scope extends HTMLElement {
       inlineScript.setAttribute("id", script.id);
       inlineScript.innerHTML = script.content;
 
-      const existingInlineScript = document.querySelector(`script[id="${script.id}"]`);
+      const existingInlineScript = document.querySelector(
+        `script[id="${script.id}"]`
+      );
       // Scripts get executed each time on load
       if (existingInlineScript) {
         existingInlineScript.replaceWith(inlineScript);
@@ -771,16 +859,18 @@ class Scope extends HTMLElement {
    */
   _processScriptsAndStyles(doc) {
     // Make sure our existing inline scripts & styles have a custom id
-    document.querySelectorAll("script:not([src]):not([id]),style:not([id])").forEach(
-      /**
-       * @param {HTMLScriptElement|HTMLStyleElement} el
-       */
-      (el) => {
-        const hash = simpleHash(el.innerHTML);
-        const id = `${el.nodeName.toLowerCase()}-${hash}`;
-        el.setAttribute("id", id);
-      }
-    );
+    document
+      .querySelectorAll("script:not([src]):not([id]),style:not([id])")
+      .forEach(
+        /**
+         * @param {HTMLScriptElement|HTMLStyleElement} el
+         */
+        (el) => {
+          const hash = simpleHash(el.innerHTML);
+          const id = `${el.nodeName.toLowerCase()}-${hash}`;
+          el.setAttribute("id", id);
+        }
+      );
 
     // Append new styles and scripts
     let canTriggerImmediately = true;
@@ -801,7 +891,11 @@ class Scope extends HTMLElement {
     if (!canTriggerImmediately) {
       this._processScriptsQueue();
     }
-    log(`${pendingInlineScripts.length} pending inline scripts ${canTriggerImmediately ? "(can trigger immediately)" : ""}`);
+    log(
+      `${pendingInlineScripts.length} pending inline scripts ${
+        canTriggerImmediately ? "(can trigger immediately)" : ""
+      }`
+    );
 
     // Obviously order can get tricky here, namespace as needed to avoid collisions
     // or avoid scope pollution
@@ -890,17 +984,22 @@ class Scope extends HTMLElement {
             log(`No matching scope for ${id}`);
             return;
           }
-          if (src && expandURL(src).toString() === expandURL(oldScope.src).toString()) {
+          if (
+            src &&
+            expandURL(src).toString() === expandURL(oldScope.src).toString()
+          ) {
             log(`Url has not changed for ${id}`);
             return;
           }
-          log(`Replacing ${id} content`);
-          if (src) {
+          if (src && src != oldScope.src) {
+            log(`Replacing ${id} src`);
             oldScope.src = src;
             // _afterLoad will happen automatically through connectedCallback
           } else {
-            oldScope.innerHTML = newScope.innerHTML;
-            this._afterLoad();
+            if (oldScope.innerHTML != newScope.innerHTML) {
+              replaceDom(oldScope, newScope);
+              this._afterLoad();
+            }
           }
         }
       );
@@ -966,7 +1065,8 @@ class Scope extends HTMLElement {
       clearTimeout(scopesLoadingTimeout);
     }
     scopesLoadingTimeout = setTimeout(() => {
-      allScopesLoaded = document.querySelectorAll("sco-pe:not(.scope-loaded)").length === 0;
+      allScopesLoaded =
+        document.querySelectorAll("sco-pe:not(.scope-loaded)").length === 0;
       if (allScopesLoaded && allScriptsLoaded) {
         this._processInlineScriptsQueue();
         log(`All scripts loaded (no scripts to load)`);
