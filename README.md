@@ -79,6 +79,17 @@ customElements.whenDefined("sco-pe").then(() => {
 - X-include-css
 - X-include-js
 
+## Scope fragments
+
+By default, the whole sco-pe element is replaced (old.innerHTML = new.innerHTML).
+
+You may want to have a finer replacement (without having the complexity of something like morphdom).
+
+You can set `data-scope-fragment` attributes. If they are found within the sco-pe, only the fragments will be replaced
+
+In order to determine if a fragment has changed, sco-pe will use `isEqualNode` or the `data-scope-fragment` value, which
+can contain some kind of hash of the content in case `isEqualNode` cannot be relied upon (for example, if your content is altered by some third party js)
+
 ## Examples
 
 See /static folder
