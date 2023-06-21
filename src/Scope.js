@@ -123,6 +123,20 @@ function getAction(el) {
 }
 
 /**
+ * @param {HTMLElement} el
+ * @returns {Boolean}
+ */
+function ignoreElement(el) {
+  const action = getAction(el);
+  return (
+    !action ||
+    hasBlankTarget(el) ||
+    isExternalURL(action) ||
+    isAnchorURL(action)
+  );
+}
+
+/**
  * @param {Function} func
  * @param {number} timeout
  * @returns {Function}
@@ -222,6 +236,14 @@ function isNodeEmpty(node) {
 function expandURL(url) {
   const str = url ? url.toString() : "#";
   return new URL(str, document.baseURI);
+}
+
+/**
+ * @param {String|URL} url
+ * @returns {String}
+ */
+function removeAnchorFromURL(url) {
+  return expandURL(url).href.split("#")[0];
 }
 
 /**
@@ -379,22 +401,26 @@ function replaceDom(o, n) {
 // Make a full page load on back
 window.addEventListener("popstate", async (event) => {
   if (event.state) {
-    const id = event.state.id || null;
-    if (id) {
+    const state = event.state.scope || null;
+    if (state) {
+      const id = state.id;
+      const url = state.url;
       /**
        * @type {Scope}
        */
       const scope = document.querySelector(`sco-pe[id="${id}"]`);
       if (scope) {
         log(`Restore location from history`);
-        await scope.loadURL(document.location.toString(), {}, event.state.hint);
+        await scope.loadURL(url, {}, state.hint);
         return;
       }
     }
   }
 
   // Do a full page load
-  window.location.replace(document.location.toString());
+  if (event.state === null) {
+    window.location.replace(document.location.toString());
+  }
 });
 
 class Scope extends HTMLElement {
@@ -455,14 +481,8 @@ class Scope extends HTMLElement {
       if (!events.includes(ev.type)) {
         return;
       }
-      const action = getAction(trigger);
       // Ignore empty, external and anchors links
-      if (
-        !action ||
-        hasBlankTarget(trigger) ||
-        isExternalURL(action) ||
-        isAnchorURL(action)
-      ) {
+      if (ignoreElement(trigger)) {
         return;
       }
       log(`Handling ${ev.type} on ${trigger.nodeName}`);
@@ -550,6 +570,8 @@ class Scope extends HTMLElement {
       if (submitter) {
         formData.append(submitter.name, submitter.value || "true");
       }
+      // Track hash when submitting a form
+      this._hash = formData.get("_hash");
       postBody = formData;
     }
 
@@ -566,6 +588,7 @@ class Scope extends HTMLElement {
       this.updateHistory(url, hint);
     }
     if (isLink) {
+      this.removeActiveClass();
       this.setActive(el);
     }
 
@@ -588,13 +611,26 @@ class Scope extends HTMLElement {
   }
 
   updateHistory(url, hint) {
+    // Don't push if same url
+    if (history.state) {
+      const prevUrl = history.state.scope && history.state.scope.url;
+      if (removeAnchorFromURL(prevUrl) == removeAnchorFromURL(url)) {
+        return;
+      }
+    }
     const id = this.getAttribute("id");
     const state = {
       id,
       url,
       hint,
     };
-    history.pushState(state, null, url);
+    history.pushState(
+      {
+        scope: state,
+      },
+      null,
+      url
+    );
   }
 
   /**
@@ -602,18 +638,24 @@ class Scope extends HTMLElement {
    */
   setActive(el) {
     log(`Set active element`);
+    el.classList.add(config.activeClass);
+  }
+
+  removeActiveClass() {
     this.querySelectorAll(`.${config.activeClass}`).forEach(
       /**
        * @param {HTMLElement} el
        */
       (el) => {
+        if (ignoreElement(el)) {
+          return;
+        }
         if (el === document.activeElement) {
           el.blur();
         }
         el.classList.remove(config.activeClass);
       }
     );
-    el.classList.add(config.activeClass);
   }
 
   /**
@@ -645,9 +687,13 @@ class Scope extends HTMLElement {
 
     try {
       const response = await fetch(url, options);
+      // If we are redirected from a GET call, update history
       if (response.redirected) {
-        // TODO: check if we should always do this ?
-        this.updateHistory(response.url, hint);
+        let url = response.url;
+        if (this._hash) {
+          url += this._hash;
+        }
+        this.updateHistory(url, hint);
       }
       if (!response.ok) {
         const message =
@@ -1056,13 +1102,18 @@ class Scope extends HTMLElement {
     this._listenToEvents();
 
     // Mark active class in any link matching href
+    this.removeActiveClass();
+    const baseHref = removeAnchorFromURL(document.location.href).replace(
+      /\/$/,
+      ""
+    );
     this.querySelectorAll(`a`).forEach((el) => {
       const href = el.getAttribute("href");
       const url = expandURL(href);
       if (isAnchorURL(url)) {
         return;
       }
-      if (url.toString() == document.location.href) {
+      if (url.toString().replace(/\/$/, "") == baseHref) {
         this.setActive(el);
       }
     });
