@@ -36,6 +36,7 @@
  * @property {Boolean} debug
  * @property {Number} loadDelay
  * @property {String} activeClass
+ * @property {String} fakeLocationHeader
  * @property {String} reloadHeader
  * @property {String} titleHeader
  * @property {String} styleHeader
@@ -50,10 +51,11 @@ let config = {
   debug: false,
   loadDelay: 300,
   activeClass: "active",
+  fakeLocationHeader: "X-Location",
   reloadHeader: "X-Reload",
   titleHeader: "X-Title",
-  cssHeader: "x-include-css",
-  jsHeader: "x-include-js",
+  cssHeader: "X-Include-CSS",
+  jsHeader: "X-include-JS",
   confirmHandler: (message) => {
     return new Promise((resolve, reject) => {
       if (confirm(message)) {
@@ -67,6 +69,7 @@ let config = {
   statusHandler: (message, statusCode) => {
     alert(message);
   },
+  progressHandler: (scope, step) => {},
   onLoad: (scope) => {},
   onScopeLoad: (scope) => {},
 };
@@ -115,11 +118,7 @@ function getEvents(el) {
  * @returns {String}
  */
 function getAction(el) {
-  return (
-    el.getAttribute("action") ||
-    el.dataset.scopeAction ||
-    el.getAttribute("href")
-  );
+  return el.getAttribute("action") || el.dataset.scopeAction || el.getAttribute("href");
 }
 
 /**
@@ -128,12 +127,7 @@ function getAction(el) {
  */
 function ignoreElement(el) {
   const action = getAction(el);
-  return (
-    !action ||
-    hasBlankTarget(el) ||
-    isExternalURL(action) ||
-    isAnchorURL(action)
-  );
+  return !action || hasBlankTarget(el) || isExternalURL(action) || isAnchorURL(action);
 }
 
 /**
@@ -346,10 +340,7 @@ function log(message) {
  */
 function hasDomChanged(o, n) {
   // filter out custom elements that most of the time inject their own logic, actives classes, spaces and styles
-  const regex = new RegExp(
-    `<[a-z]+-[a-z]+.*>.*<\/[a-z]+-[a-z]+>|${config.activeClass}|\\s+|style=".*?"`,
-    "gmi"
-  );
+  const regex = new RegExp(`<[a-z]+-[a-z]+.*>.*<\/[a-z]+-[a-z]+>|${config.activeClass}|\\s+|style=".*?"`, "gmi");
   const fo = o.innerHTML.replace(regex, "").trim();
   const fn = n.innerHTML.replace(regex, "").trim();
   return fo != fn;
@@ -373,9 +364,7 @@ function replaceDom(o, n) {
      * @param {HTMLElement} fragment
      */
     (fragment) => {
-      const sel = fragment.id
-        ? `#${fragment.id}`
-        : `.${fragment.classList.item(0)}`;
+      const sel = fragment.id ? `#${fragment.id}` : `.${fragment.classList.item(0)}`;
       /**
        * @type {HTMLElement}
        */
@@ -383,10 +372,7 @@ function replaceDom(o, n) {
       if (nid) {
         const v = fragment.dataset.scopeFragment;
         // You can use a hash value if your html has mutated and cannot be reliably compared with isEqualNode
-        const isChanged =
-          v.length > 0
-            ? v != nid.dataset.scopeFragment
-            : !fragment.isEqualNode(nid);
+        const isChanged = v.length > 0 ? v != nid.dataset.scopeFragment : !fragment.isEqualNode(nid);
         if (isChanged) {
           log(`Replacing ${sel} fragment`);
           fragment.innerHTML = nid.innerHTML;
@@ -398,8 +384,32 @@ function replaceDom(o, n) {
   );
 }
 
-// Make a full page load on back
+/**
+ * @param {RequestInfo | URL} url
+ * @param {RequestInit} options
+ * @returns {Promise<Response>}
+ */
+function justFetch(url, options) {
+  options = options || {};
+  options.headers = options.headers || {};
+  options.headers["X-Requested-With"] = "XMLHttpRequest";
+  if (!options.referrerPolicy) {
+    options.referrerPolicy = "no-referrer-when-downgrade";
+  }
+  return fetch(url, options);
+}
+
+/**
+ * @param {String} str
+ * @returns {String}
+ */
+function decodeURIPlus(str) {
+  return decodeURI(str.replace(/\+/g, " "));
+}
+
+// Restore state or make a full page load on back
 window.addEventListener("popstate", async (event) => {
+  let scopeNotFound = false;
   if (event.state) {
     const state = event.state.scope || null;
     if (state) {
@@ -413,12 +423,14 @@ window.addEventListener("popstate", async (event) => {
         log(`Restore location from history`);
         await scope.loadURL(url, {}, state.hint);
         return;
+      } else {
+        scopeNotFound = true;
       }
     }
   }
 
   // Do a full page load
-  if (event.state === null) {
+  if (event.state === null || scopeNotFound) {
     window.location.replace(document.location.toString());
   }
 });
@@ -488,15 +500,7 @@ class Scope extends HTMLElement {
       log(`Handling ${ev.type} on ${trigger.nodeName}`);
       ev.preventDefault();
 
-      const debounced = [
-        "input",
-        "scroll",
-        "resize",
-        "mousemove",
-        "touchmove",
-        "keyup",
-        "keydown",
-      ];
+      const debounced = ["input", "scroll", "resize", "mousemove", "touchmove", "keyup", "keydown"];
       const load = () => {
         if (debounced.includes(ev.type)) {
           this.loadFunc(trigger, ev);
@@ -531,21 +535,18 @@ class Scope extends HTMLElement {
     let action = getAction(el);
     let url = expandURL(action).href;
     let urlWithParams = url;
-    const isLink = el.nodeName === "A";
+    const isLink = el.nodeName === "A" || el.dataset.scopeLink; // a link or behave like a link
     /**
      * @type {HTMLButtonElement}
      */
     //@ts-ignore
     const submitter = ev.submitter || null;
-    const hint = el.dataset.scopeHint; // helps to determine fetch target, this by default
-    const method = (
-      el.getAttribute("method") ||
-      el.dataset.scopeMethod ||
-      "GET"
-    ).toUpperCase();
+
+    // helps to determine fetch target, this by default
+    const hint = el.dataset.scopeHint || this.dataset.scopeHint;
+    const method = (el.getAttribute("method") || el.dataset.scopeMethod || "GET").toUpperCase();
     // Update history for links for named scopes
-    let pushToHistory =
-      isLink && getHistory(el, this) && this.hasAttribute("id");
+    let pushToHistory = isLink && getHistory(el, this) && this.hasAttribute("id");
     let postBody;
 
     // Forms need some love
@@ -584,20 +585,15 @@ class Scope extends HTMLElement {
       return;
     }
 
-    if (pushToHistory) {
-      this.updateHistory(url, hint);
-    }
-    if (isLink) {
-      this.removeActiveClass();
-      this.setActive(el);
-    }
-
     if (method === "GET") {
       url = urlWithParams;
     }
     const body = method === "POST" ? postBody : null;
 
-    await this.loadURL(
+    // Show progress bar
+    config.progressHandler(this, "start");
+
+    const result = await this.loadURL(
       url,
       {
         method,
@@ -605,8 +601,26 @@ class Scope extends HTMLElement {
       },
       hint
     );
+
+    // Update AFTER loading otherwise you mess up the refer(r)er
+    if (pushToHistory && !result.error) {
+      const historyUrl = result.redirected || url;
+      this.updateHistory(historyUrl, hint);
+    }
+
+    // Set active based on updated URL
+    if (isLink) {
+      this.removeActiveClass();
+      this.setActive(el);
+      this._markActive();
+    }
+
     if (submitter) {
       submitter.removeAttribute("disabled");
+    }
+
+    if (!result.aborted) {
+      config.progressHandler(this, "done");
     }
   }
 
@@ -662,6 +676,7 @@ class Scope extends HTMLElement {
    * @param {String} url
    * @param {Object} fetchOptions
    * @param {String} hint
+   * @returns {Promise<Object>}
    */
   async loadURL(url, fetchOptions = {}, hint = null) {
     if (!fetchOptions.signal) {
@@ -680,40 +695,51 @@ class Scope extends HTMLElement {
       fetchOptions
     );
 
-    // Since we don't know before getting the server response which sco-pe will be given
-    // you can "hint" to show proper loading state in the dom
-    const loadTarget = hint ? document.getElementById(hint) : this;
-    loadTarget.classList.add("scope-fetching");
-
     try {
-      const response = await fetch(url, options);
-      // If we are redirected from a GET call, update history
-      if (response.redirected) {
-        let url = response.url;
-        if (this._hash) {
-          url += this._hash;
-        }
-        this.updateHistory(url, hint);
-      }
+      const response = await justFetch(url, options);
+
+      // Get error message from headers or response
       if (!response.ok) {
-        const message =
-          response.headers.get(config.statusHeader) || response.statusText;
+        const message = response.headers.get(config.statusHeader) || response.statusText;
         config.statusHandler(message, response.status);
-        return;
+        return {
+          error: message,
+        };
       }
+
       this._processHeaders(response);
+      // Fake redirect can read statuses
+      if (config.fakeLocationHeader) {
+        const location = response.headers.get(config.fakeLocationHeader);
+        if (location) {
+          await this.loadURL(location);
+          return {
+            redirected: location,
+          };
+        }
+      }
       const data = await response.text();
       this._processResponse(data);
+
+      if (response.redirected) {
+        return {
+          redirected: response.url,
+        };
+      }
     } catch (error) {
+      // Deal with network errors
       //@link https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal#aborting_a_fetch_with_timeout_or_explicit_abort
       if (error.name === "AbortError") {
         // The user knows he aborted, no notification
       } else {
         config.statusHandler(error.message);
       }
+      return {
+        error: error.message,
+        aborted: error.name === "AbortError",
+      };
     }
-
-    loadTarget.classList.remove("scope-fetching");
+    return {};
   }
 
   /**
@@ -723,13 +749,13 @@ class Scope extends HTMLElement {
     if (config.statusHeader) {
       const status = response.headers.get(config.statusHeader);
       if (status) {
-        config.statusHandler(status, response.status);
+        config.statusHandler(decodeURIPlus(status), response.status);
       }
     }
     if (config.titleHeader) {
       const title = response.headers.get(config.titleHeader);
       if (title) {
-        document.title = title;
+        document.title = decodeURIPlus(title);
       }
     }
     if (config.reloadHeader) {
@@ -785,10 +811,7 @@ class Scope extends HTMLElement {
   _processDocument(doc) {
     const attrs = ["class"];
     attrs.forEach((attr) => {
-      document.documentElement.setAttribute(
-        attr,
-        doc.documentElement.getAttribute(attr) || ""
-      );
+      document.documentElement.setAttribute(attr, doc.documentElement.getAttribute(attr) || "");
     });
 
     for (const d in doc.documentElement.dataset) {
@@ -885,9 +908,7 @@ class Scope extends HTMLElement {
       inlineScript.setAttribute("id", script.id);
       inlineScript.innerHTML = script.content;
 
-      const existingInlineScript = document.querySelector(
-        `script[id="${script.id}"]`
-      );
+      const existingInlineScript = document.querySelector(`script[id="${script.id}"]`);
       // Scripts get executed each time on load
       if (existingInlineScript) {
         existingInlineScript.replaceWith(inlineScript);
@@ -921,18 +942,16 @@ class Scope extends HTMLElement {
    */
   _processScriptsAndStyles(doc) {
     // Make sure our existing inline scripts & styles have a custom id
-    document
-      .querySelectorAll("script:not([src]):not([id]),style:not([id])")
-      .forEach(
-        /**
-         * @param {HTMLScriptElement|HTMLStyleElement} el
-         */
-        (el) => {
-          const hash = simpleHash(el.innerHTML);
-          const id = `${el.nodeName.toLowerCase()}-${hash}`;
-          el.setAttribute("id", id);
-        }
-      );
+    document.querySelectorAll("script:not([src]):not([id]),style:not([id])").forEach(
+      /**
+       * @param {HTMLScriptElement|HTMLStyleElement} el
+       */
+      (el) => {
+        const hash = simpleHash(el.innerHTML);
+        const id = `${el.nodeName.toLowerCase()}-${hash}`;
+        el.setAttribute("id", id);
+      }
+    );
 
     // Append new styles and scripts
     let canTriggerImmediately = true;
@@ -953,11 +972,7 @@ class Scope extends HTMLElement {
     if (!canTriggerImmediately) {
       this._processScriptsQueue();
     }
-    log(
-      `${pendingInlineScripts.length} pending inline scripts ${
-        canTriggerImmediately ? "(can trigger immediately)" : ""
-      }`
-    );
+    log(`${pendingInlineScripts.length} pending inline scripts ${canTriggerImmediately ? "(can trigger immediately)" : ""}`);
 
     // Obviously order can get tricky here, namespace as needed to avoid collisions
     // or avoid scope pollution
@@ -1046,10 +1061,7 @@ class Scope extends HTMLElement {
             log(`No matching scope for ${id}`);
             return;
           }
-          if (
-            src &&
-            expandURL(src).toString() === expandURL(oldScope.src).toString()
-          ) {
+          if (src && expandURL(src).toString() === expandURL(oldScope.src).toString()) {
             log(`Url has not changed for ${id}`);
             return;
           }
@@ -1082,6 +1094,10 @@ class Scope extends HTMLElement {
    * @param {Boolean} check Check if there is existing content
    */
   async loadContent(check = false) {
+    const fetchingClass = "scope-fetching";
+    if (this.classList.contains(fetchingClass)) {
+      return;
+    }
     const src = this.src;
     const preventLoading = check && !isNodeEmpty(this);
     if (src && !preventLoading) {
@@ -1090,23 +1106,23 @@ class Scope extends HTMLElement {
       this.abortLoading();
       this.abortController = new AbortController();
 
+      this.classList.add(fetchingClass);
+
       await this.loadURL(src, {
         signal: this.abortController.signal,
       });
+
+      this.classList.remove(fetchingClass);
     } else {
       this._afterLoad();
     }
+    this._markActive();
   }
 
-  _afterLoad() {
-    this._listenToEvents();
-
+  _markActive() {
     // Mark active class in any link matching href
-    this.removeActiveClass();
-    const baseHref = removeAnchorFromURL(document.location.href).replace(
-      /\/$/,
-      ""
-    );
+    let isRemoved = false;
+    const baseHref = removeAnchorFromURL(document.location.href).replace(/\/$/, "");
     this.querySelectorAll(`a`).forEach((el) => {
       const href = el.getAttribute("href");
       const url = expandURL(href);
@@ -1114,11 +1130,18 @@ class Scope extends HTMLElement {
         return;
       }
       if (url.toString().replace(/\/$/, "") == baseHref) {
+        // Only remove if we find another
+        if (!isRemoved) {
+          this.removeActiveClass();
+          isRemoved = true;
+        }
         this.setActive(el);
       }
     });
+  }
 
-    this.classList.remove("scope-fetching");
+  _afterLoad() {
+    this._listenToEvents();
     this.classList.add("scope-loaded");
     this.dispatchEvent(new CustomEvent("scope-loaded"));
     config.onScopeLoad(this);
@@ -1132,8 +1155,7 @@ class Scope extends HTMLElement {
       clearTimeout(scopesLoadingTimeout);
     }
     scopesLoadingTimeout = setTimeout(() => {
-      allScopesLoaded =
-        document.querySelectorAll("sco-pe:not(.scope-loaded)").length === 0;
+      allScopesLoaded = document.querySelectorAll("sco-pe:not(.scope-loaded)").length === 0;
       if (allScopesLoaded && allScriptsLoaded) {
         this._processInlineScriptsQueue();
         log(`All scripts loaded (no scripts to load)`);
