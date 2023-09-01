@@ -2,8 +2,6 @@
 
 > Scoped elements for your apps
 
-WARNING: this is work in progress and may change at any time. Feedback is still welcome :-)
-
 ## How it works
 
 Divide your pages into fragments with `sco-pe` elements.
@@ -71,6 +69,9 @@ customElements.whenDefined("sco-pe").then(() => {
 });
 ```
 
+Note that X-Status is not read on 3xx response that are opaque to the fetch api.
+If needed, you can return "fake" redirects with 2xx and a `X-Location` header.
+
 ## Other headers
 
 - X-Status
@@ -93,6 +94,9 @@ can contain some kind of hash of the content in case `isEqualNode` cannot be rel
 ## Examples
 
 See /static folder
+
+You can also see this working in my minimalistic admin panel:
+https://github.com/lekoala/admini
 
 ## Inspiration
 
