@@ -353,3 +353,7 @@ npm test
 ```
 
 The test suite covers initial `src` loading, link navigation, GET forms, 422 validation errors, live status/alert updates, focus management, same-document hash focus, scroll policies, non-HTML response refusal, native submitter overrides, external submit buttons, `Scope-Script` custom-element upgrades, autosubmit, keep, transitions, and revalidation state.
+
+## Demos
+
+Run `npm run serve` and open [`/static/index.html`](http://127.0.0.1:4173/static/index.html) for small working examples. See [the demo guide](docs/demos.md) for what each page demonstrates.

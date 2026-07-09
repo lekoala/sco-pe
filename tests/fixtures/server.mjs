@@ -36,6 +36,10 @@ function scope(title, extra = "", attrs = 'history="true"') {
   return `<sco-pe id="main" ${attrs}><h1>${title}</h1>${extra}</sco-pe>`;
 }
 
+function demoScope(id, title, extra = "", attrs = 'history="true"') {
+  return `<sco-pe id="${id}" ${attrs}><h1>${title}</h1>${extra}</sco-pe>`;
+}
+
 function parseMultipartText(raw, name) {
   const marker = `name="${name}"`;
   if (!raw.includes(marker)) return "";
@@ -93,6 +97,111 @@ const server = createServer(async (req, res) => {
       <a id="component-link" href="/component">Component</a>
       <a id="json-link" href="/json">JSON</a>
     `,
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/demo/users" && req.method === "POST") {
+    send(
+      res,
+      200,
+      scope(
+        "User saved",
+        '<p role="status">The form was submitted without leaving the page.</p><a href="/demo/users">Back to users</a>',
+      ),
+      { "Scope-Status": "User saved" },
+    );
+    return;
+  }
+
+  if (url.pathname === "/demo/users" && url.searchParams.get("page") === "2") {
+    send(
+      res,
+      200,
+      scope(
+        "Users — page 2",
+        '<p>History, title, focus and the live region update with this response.</p><a href="/demo/users">Previous page</a>',
+      ),
+      { "Scope-Status": "Page 2 loaded" },
+    );
+    return;
+  }
+
+  if (url.pathname === "/demo/users") {
+    const q = url.searchParams.get("q");
+    const title = q ? `Search results: ${q}` : "Users";
+    send(
+      res,
+      200,
+      scope(
+        title,
+        `
+          <nav aria-label="Users"><a href="/demo/users?page=2">Next page</a></nav>
+          <form action="/demo/users" method="get">
+            <label>Search <input name="q" value="${q || ""}"></label>
+            <button>Search</button>
+          </form>
+          <form action="/demo/users" method="post" data-confirm="Create this user?">
+            <label>Email <input name="email" type="email" required></label>
+            <button>Create user</button>
+          </form>
+        `,
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/demo/orders") {
+    send(
+      res,
+      200,
+      demoScope(
+        "orders",
+        "Recent orders",
+        '<p>#1042 — awaiting payment</p><a href="/demo/order-1042">Mark #1042 as paid</a>',
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/demo/stats") {
+    send(
+      res,
+      200,
+      demoScope("stats", "Today", "<p>4 orders awaiting payment.</p>", 'scroll="none"'),
+    );
+    return;
+  }
+
+  if (url.pathname === "/demo/order-1042") {
+    send(
+      res,
+      200,
+      demoScope("stats", "Today", "<p>3 orders awaiting payment.</p>", 'scroll="none"'),
+      {
+        "Scope-Target": "stats",
+        "Scope-Status": "Order #1042 marked as paid",
+      },
+    );
+    return;
+  }
+
+  if (url.pathname === "/demo/catalog") {
+    const q = url.searchParams.get("q") || "";
+    const item = q ? `Results matching “${q}”` : "All products";
+    send(
+      res,
+      200,
+      demoScope(
+        "catalog",
+        "Product catalogue",
+        `
+          <form action="/demo/catalog" method="get"><label>Filter <input name="q" value="${q}"></label></form>
+          <div id="product-list" class="scroll-list"><p>${item}</p><p>Keyboard</p><p>Monitor</p><p>USB-C dock</p><p>Headphones</p><p>Webcam</p><p>Mouse</p></div>
+          <a href="/demo/catalog?q=featured">Show featured products</a>
+        `,
+        'history="true" autosubmit="250" scroll="keep" transition="fade" transition-timeout="180"',
       ),
     );
     return;

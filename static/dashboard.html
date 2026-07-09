@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>sco-pe — dashboard demo</title>
+  <link rel="stylesheet" href="demo.css">
+  <script type="module" src="../sco-pe.js"></script>
+</head>
+<body>
+  <nav><a href="index.html">All demos</a></nav>
+  <h1>Independent dashboard scopes</h1>
+  <p>The order action is initiated in the left scope but the server sends <code>Scope-Target: stats</code>.</p>
+  <div id="scope-status" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div class="layout">
+    <sco-pe id="orders" src="/demo/orders" history="true"><p>Loading orders…</p></sco-pe>
+    <sco-pe id="stats" src="/demo/stats" scroll="none"><p>Loading statistics…</p></sco-pe>
+  </div>
+</body>
+</html>
