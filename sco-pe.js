@@ -1,3 +1,7 @@
 import Scope from "./src/Scope.js";
 
-customElements.define("sco-pe", Scope);
+if (!customElements.get("sco-pe")) {
+  customElements.define("sco-pe", Scope);
+}
+
+export default Scope;

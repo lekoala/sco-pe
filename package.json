@@ -1,25 +1,47 @@
 {
   "name": "sco-pe",
-  "version": "0.1.0",
-  "description": "Scoped elements for your apps",
-  "main": "index.js",
-  "keywords": [],
+  "version": "0.2.0-alpha.0",
+  "description": "Scoped navigation custom element — progressively enhances links and forms in server-rendered apps",
+  "type": "module",
+  "main": "sco-pe.js",
+  "files": [
+    "sco-pe.js",
+    "src",
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": "./sco-pe.js",
+    "./src/Scope.js": "./src/Scope.js",
+    "./dist/sco-pe.min.js": "./dist/sco-pe.min.js"
+  },
+  "sideEffects": [
+    "./sco-pe.js"
+  ],
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "esbuild --bundle --minify --format=esm --sourcemap sco-pe.js --outfile=sco-pe.min.js",
-    "start": "npm run build -- --servedir=./",
-    "watch": "npm run build -- --watch",
-    "check": "npx rome check src/",
-    "format": "npx rome format src/ --write",
-    "update-deps": "npx npm-check-updates -u",
-    "bump": "npm run build-all && npm version patch",
-    "jsdoc": "npx jsdoc-to-markdown src/Scope.js",
-    "local-server": "php -S localhost:8002 -t ."
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "check": "node --check sco-pe.js && node --check src/*.js && node --check tests/fixtures/server.mjs",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "serve": "node tests/fixtures/server.mjs",
+    "build": "esbuild --bundle --format=esm --sourcemap sco-pe.js --outfile=dist/sco-pe.js && esbuild --bundle --minify --format=esm --sourcemap sco-pe.js --outfile=dist/sco-pe.min.js",
+    "prepublishOnly": "npm run check && npm test && npm run build"
   },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@biomejs/biome": "^2.4.0",
+    "esbuild": "^0.25.0"
+  },
+  "keywords": [
+    "custom-elements",
+    "html",
+    "fetch",
+    "navigation",
+    "ajax",
+    "progressive-enhancement"
+  ],
   "author": "LeKoala",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/lekoala/sco-pe"
-  },
   "license": "MIT"
 }

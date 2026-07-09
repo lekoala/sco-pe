@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>sco-pe demo</title>
+  <script type="module" src="../sco-pe.js"></script>
+  <style>
+    sco-pe[aria-busy="true"] { opacity: .65; cursor: progress; }
+    #scope-status:not(:empty), #scope-alert:not(:empty) { padding: .5rem; border: 1px solid currentColor; margin-block: .5rem; }
+  </style>
+</head>
+<body>
+  <div id="scope-status" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div id="scope-alert" role="alert" aria-atomic="true"></div>
+
+  <sco-pe id="main" src="/users" history="true">
+    <p>Loading…</p>
+  </sco-pe>
+
+  <template id="scope-examples">
+    <form action="/users" method="post" data-confirm="Create this user?"><button>Create</button></form>
+    <form action="/users" method="get">
+      <label><input type="checkbox" name="role" value="editor"> Editor</label>
+      <label><input type="checkbox" name="role" value="author"> Author</label>
+      <button>Filter</button>
+    </form>
+  </template>
+</body>
+</html>
