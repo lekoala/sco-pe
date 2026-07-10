@@ -707,11 +707,49 @@ export default class Scope extends HTMLElement {
     const restoreScroll = scrollMode === "keep" ? saveScrollPositions(this) : null;
 
     const fragment = createReplacementFragment(this, replacement.html);
+
+    const swapSelector = this.getAttribute("scope-swap");
+    if (swapSelector) {
+      const target = this.querySelector(swapSelector);
+      const incoming = target ? fragment.firstElementChild : null;
+      if (target && incoming) {
+        throwIfAborted(context.signal);
+        await assets.loadRegisteredComponents(incoming);
+        const prevHeight = this.clientHeight;
+        this.style.minHeight = prevHeight + "px";
+        target.replaceWith(incoming);
+        setTimeout(() => { this.style.minHeight = ""; }, 0);
+        const detail = {
+          ok: response.ok,
+          rendered: true,
+          status,
+          url: response.url || context.requestUrl,
+          userInitiated: context.userInitiated,
+          revalidating: context.revalidating,
+          statusMessage: context.statusMessage,
+          alertMessage: context.alertMessage,
+          focus: context.focus,
+          scroll: context.scroll,
+          source: context.source || this.id || null,
+          target: context.target || this.id || null,
+        };
+        this.dispatchEvent(new CustomEvent("scope:after-swap", eventDetail(detail)));
+        focusAfterSwap(this, detail);
+        if (restoreScroll) restoreScroll();
+        else scrollScope(this, scrollMode, detail.url);
+        announce(this, detail);
+        return detail;
+      }
+    }
+
     const serverSnapshots = snapshotKeptElements(this, fragment);
     await assets.loadRegisteredComponents(fragment);
     throwIfAborted(context.signal);
     if (replacement.scope) copyScopeAttributes(this, replacement.scope);
+    const prevHeight = this.clientHeight;
+    this.style.minHeight = prevHeight + "px";
     replaceChildren(this, fragment, swapKeptChildren);
+    setTimeout(() => { this.style.minHeight = ""; }, 0);
     throwIfAborted(context.signal);
     rememberServerSnapshots(this, serverSnapshots);
     rememberKeptElements(this);

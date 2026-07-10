@@ -109,6 +109,32 @@ Scroll behavior is explicit through `scroll="top|keep|none|hash"` on `<sco-pe>`.
 
 Use `autosubmit="300"` on the scope for GET filter forms. POST forms are not autosubmitted.
 
+## Scope-swap
+
+Use `scope-swap="#child-selector"` to replace a specific child element instead
+of the entire scope content. The server returns only the replacement fragment;
+the rest of the scope (form fields, navigation) is never touched. This avoids
+focus loss and race conditions on input values during live filter patterns.
+
+```html
+<sco-pe id="catalog" src="/catalog" autosubmit="250" scope-swap="#product-list">
+  <form action="/catalog" method="get">
+    <label>Filter <input name="q"></label>
+  </form>
+  <div id="product-list"><!-- replaced by server response --></div>
+</sco-pe>
+```
+
+The server response for this scope is just:
+
+```html
+<div id="product-list"><p>Results matching "key"</p><p>Keyboard</p></div>
+```
+
+Unlike `keep="same-html"`, no morphing, snapshotting or id-matching is involved
+— the target element is directly replaced with the first element child of the
+server response.
+
 ## Keep
 
 Use `keep="same-html"` to preserve expensive custom elements when the server renders the same HTML snapshot. Add `keep-selector="..."` when the default “custom elements with id” rule is too broad or too narrow.

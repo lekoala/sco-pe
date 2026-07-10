@@ -4,7 +4,7 @@ Scoped navigation for server-rendered apps.
 
 `sco-pe` is an autonomous custom element. It progressively enhances regular links and forms inside a scoped region: requests are fetched, matching server-rendered HTML is swapped back into the scope, and regular navigation still works without JavaScript.
 
-This branch is a proposed `0.2` rewrite direction. It intentionally keeps the public surface small: behavior is configured on `<sco-pe>`, response behavior comes from `Scope-*` headers, and richer client-side behavior comes from external modules or custom elements.
+The public surface is intentionally small: behavior is configured on `<sco-pe>`, response behavior comes from `Scope-*` headers, and richer client-side behavior comes from external modules or custom elements.
 
 ## Goals
 
@@ -89,6 +89,7 @@ focus               auto|heading|first-error|keep|none
 scroll              top|keep|none|hash
 announce            auto|status|alert|none
 autosubmit          debounce in ms for GET forms inside the scope
+scope-swap          selector for a single child to replace instead of the whole scope
 keep                none|same-html
 keep-selector       optional selector for kept same-html elements
 transition          none or a CSS mode name, e.g. fade
@@ -158,6 +159,20 @@ Use `autosubmit="300"` on the scope for live GET filters:
 ```
 
 Only GET forms are autosubmitted. The URL is updated with `history.replaceState()` to avoid creating a history entry for every keystroke.
+
+Combine with `scope-swap` to replace only the result container, keeping the
+form intact and avoiding focus loss:
+
+```html
+<sco-pe id="catalog" src="/catalog" autosubmit="250" scope-swap="#product-list">
+  <form action="/catalog" method="get">
+    <label>Filter <input name="q"></label>
+  </form>
+  <div id="product-list"><!-- replaced by server response --></div>
+</sco-pe>
+```
+
+The server returns only the replacement fragment, not the full scope wrapper.
 
 ## Keep expensive widgets
 

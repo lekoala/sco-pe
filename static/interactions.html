@@ -8,10 +8,19 @@
   <script type="module" src="../sco-pe.js"></script>
 </head>
 <body>
-  <nav><a href="index.html">All demos</a></nav>
+  <nav><a href="/static/index.html">All demos</a></nav>
   <h1>Autosubmit, scroll and transition</h1>
   <p>Type in the filter, scroll the product list, then use the link. The list keeps its position while the outgoing content fades.</p>
   <div id="scope-status" role="status" aria-live="polite" aria-atomic="true"></div>
-  <sco-pe id="catalog" src="/demo/catalog" history="true" autosubmit="250" scroll="keep" transition="fade" transition-timeout="180"><p>Loading catalogue…</p></sco-pe>
+  <sco-pe id="catalog" src="/demo/catalog" autosubmit="250" scope-swap="#product-list">
+    <form action="/demo/catalog" method="get">
+      <label>Filter <input name="q" value=""></label>
+    </form>
+    <div id="product-list" class="scroll-list">
+      <p>All products</p>
+      <p>Keyboard</p><p>Monitor</p><p>USB-C dock</p><p>Headphones</p><p>Webcam</p><p>Mouse</p>
+    </div>
+    <p><a href="/demo/catalog?q=featured">Show featured products</a></p>
+  </sco-pe>
 </body>
 </html>
