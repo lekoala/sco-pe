@@ -100,7 +100,7 @@ disabled            leave links and forms to the browser (unless exactly "false"
 
 ## Confirmation
 
-`data-confirm` is the one supported data attribute. Put it on a link or form to ask before sco-pe sends the request; a submit button's own value overrides the form's value.
+`data-confirm` is the one deliberate data-attribute exception. The message belongs to an individual native action, not to the surrounding scope. Put it on a link or form to ask before sco-pe sends the request; a submit button's own value overrides the form's value.
 
 ```html
 <form action="/admin/users/12" method="post" data-confirm="Delete this user?"><button>Delete</button></form>
@@ -161,7 +161,7 @@ Only GET forms are autosubmitted. The URL is updated with `history.replaceState(
 
 ## Keep expensive widgets
 
-`keep="same-html"` preserves matching custom elements when the server renders the same HTML again. This keeps client-side state for expensive widgets while still replacing them when their server-rendered HTML changes.
+`keep="same-html"` preserves matching keyed custom elements when the server renders the same HTML again. This keeps client-side state for expensive widgets while still replacing them when their server-rendered HTML changes.
 
 ```html
 <sco-pe id="main" keep="same-html" keep-selector="admin-rich-select, admin-map">
@@ -170,6 +170,8 @@ Only GET forms are autosubmitted. The URL is updated with `history.replaceState(
 ```
 
 If `keep-selector` is omitted, the default candidates are custom elements with stable `id`s. sco-pe compares the server HTML snapshot, not client-side mutations made after upgrade.
+
+`keep` is intentionally an island-preservation feature, not a general-purpose DOM morphing API. Use stable, unique ids and keep the selector narrow. Regular server markup around the widget is still updated, including validation errors and reordered keyed islands.
 
 ## Transitions
 
@@ -190,6 +192,7 @@ aria-hidden="true"
 
 You own the CSS animation. sco-pe only provides lifecycle hooks and removes the outgoing layer after `transitionend`, `animationend`, or the timeout.
 The outgoing copy has its descendant `id`s removed to avoid duplicate document ids; transition-aware modules should therefore remain idempotent.
+Transitions are cosmetic and do not keep the request busy. A newer swap cancels and removes any outgoing layer still playing.
 
 For a small default busy indicator, applications can use:
 
@@ -266,15 +269,6 @@ $response->headers->set('Scope-Script', '/assets/admin/rich-editor.js');
 $response->headers->set('Scope-Style', '/assets/admin/rich-editor.css');
 ```
 
-Templates can also declare assets locally:
-
-```html
-<template scope-assets>
-  <link rel="stylesheet" href="/assets/admin/uploader.css">
-  <script type="module" src="/assets/admin/uploader.js"></script>
-</template>
-```
-
 Custom elements can be registered up front:
 
 ```js
@@ -289,6 +283,10 @@ customElements.whenDefined("sco-pe").then(() => {
 ```
 
 When a fetched scope contains an undefined registered custom element, sco-pe imports the mapped module and waits for the element to be defined.
+
+Asset declarations intentionally stay out of fetched markup. Use `Scope-Script` / `Scope-Style` when the server discovers dependencies at render time, or the component registry when the mapping is known by the application. A registered module must define its custom element during module evaluation; otherwise the load fails with a clear error instead of remaining busy indefinitely.
+
+Fetched `<script>`, `<style>`, and stylesheet `<link>` elements are removed. Load executable or global styling dependencies through `Scope-Script` / `Scope-Style`. This is not an HTML sanitizer: responses are trusted same-origin application HTML, so inline event attributes and URLs remain the server application's responsibility.
 
 ## Accessibility contract
 
@@ -342,7 +340,31 @@ document.addEventListener("scope:transition-start", (event) => {});
 document.addEventListener("scope:transition-end", (event) => {});
 ```
 
-`stripHash` normalizes `/users/` and `/users` as the same URL for active-link and history comparisons. If a response is routed with `Scope-Target`, history and active links remain owned by the scope that initiated the request.
+Configuration callbacks follow the same ownership rule:
+
+```txt
+afterLoad(scope, detail)  runs for every scope whose lifecycle completes
+onLoad(scope, detail)     compatibility callback, once on the request-owning source scope
+onError(scope, detail)    runs for non-abort request errors on the source scope
+```
+
+`scope:load` details distinguish transport success from rendering:
+
+```txt
+ok        true only for a successful HTTP response (304 also counts as unchanged success)
+rendered  true when HTML was actually swapped into a scope
+status    the HTTP status when a response was received
+source    id of the scope that owns the request
+target    id of the scope that owns the swap
+```
+
+A rendered `422` therefore reports `{ ok: false, rendered: true }`.
+
+When `Scope-Target` routes a response to another scope, the source owns the request, history, and active navigation. The target owns the swap, focus, announcement, `scope:before-swap`, and `scope:after-swap`. Both source and target receive `scope:load`, with `source` and `target` in the event detail.
+
+`stripHash` normalizes `/users/` and `/users` as the same URL for active-link and history comparisons.
+
+History state stores one owning scope per browser entry. In a multi-scope admin layout, enable navigational history on the main content scope and update secondary scopes through `Scope-Target`.
 
 ## Tests
 

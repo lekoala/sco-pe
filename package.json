@@ -1,7 +1,7 @@
 {
   "name": "sco-pe",
-  "version": "0.2.0-alpha.0",
-  "description": "Scoped navigation custom element — progressively enhances links and forms in server-rendered apps",
+  "version": "0.2.0-alpha.3",
+  "description": "Scoped navigation custom element \u2014 progressively enhances links and forms in server-rendered apps",
   "type": "module",
   "main": "sco-pe.js",
   "files": [
@@ -9,23 +9,28 @@
     "src",
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "docs",
+    "CHANGELOG.md"
   ],
   "exports": {
     ".": "./sco-pe.js",
     "./src/Scope.js": "./src/Scope.js",
-    "./dist/sco-pe.min.js": "./dist/sco-pe.min.js"
+    "./dist/sco-pe.min.js": "./dist/sco-pe.min.js",
+    "./dist/sco-pe.js": "./dist/sco-pe.js"
   },
   "sideEffects": [
-    "./sco-pe.js"
+    "./sco-pe.js",
+    "./dist/*.js"
   ],
   "scripts": {
     "test": "playwright test",
     "test:ui": "playwright test --ui",
-    "check": "node --check sco-pe.js && node --check src/*.js && node --check tests/fixtures/server.mjs",
+    "check": "node --check sco-pe.js && node --check src/*.js && node --check tests/fixtures/server.mjs && node --check demo-server.mjs",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "serve": "node tests/fixtures/server.mjs",
+    "demo": "node demo-server.mjs",
     "build": "esbuild --bundle --format=esm --sourcemap sco-pe.js --outfile=dist/sco-pe.js && esbuild --bundle --minify --format=esm --sourcemap sco-pe.js --outfile=dist/sco-pe.min.js",
     "prepublishOnly": "npm run check && npm test && npm run build"
   },

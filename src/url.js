@@ -1,5 +1,5 @@
 export function expandURL(value) {
-  const href = value ? String(value) : "#";
+  const href = value == null ? "#" : String(value);
   return new URL(href, document.baseURI);
 }
 
@@ -22,12 +22,15 @@ export function getHash(value) {
 }
 
 export function isSameDocumentAnchor(value) {
-  if (!value) return false;
-  const url = expandURL(value);
+  if (value == null) return false;
+  const raw = String(value);
+  if (!raw.includes("#")) return false;
+
+  const url = expandURL(raw);
   const here = new URL(window.location.href);
   url.hash = "";
   here.hash = "";
-  return Boolean(getHash(value)) && url.href === here.href;
+  return url.href === here.href;
 }
 
 export function stripHash(value) {
@@ -42,4 +45,13 @@ export function splitHeader(value) {
     .split(",")
     .map((part) => part.trim())
     .filter(Boolean);
+}
+
+export function decodeHeader(value) {
+  if (!value) return value;
+  try {
+    return decodeURIComponent(value.replace(/\+/g, " "));
+  } catch {
+    return value;
+  }
 }

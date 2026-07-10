@@ -19,6 +19,7 @@ import {
 import { focusHashTarget, saveScrollPositions, scrollScope } from "./scroll.js";
 import { replaceChildren } from "./transition.js";
 import {
+  decodeHeader,
   expandURL,
   hasExternalTarget as hasNonSelfTarget,
   isExternalURL,
@@ -34,6 +35,34 @@ function parseBool(value, fallback = false) {
   return ["1", "true", true, 1, "yes"].includes(value);
 }
 
+function mergeRequestHeaders(base, override) {
+  const headers = new Headers(base || {});
+  new Headers(override || {}).forEach((value, name) => {
+    headers.set(name, value);
+  });
+  return headers;
+}
+
+function combineSignals(controller, externalSignal) {
+  if (!externalSignal) return controller.signal;
+  if (typeof AbortSignal.any === "function") {
+    return AbortSignal.any([controller.signal, externalSignal]);
+  }
+  if (externalSignal.aborted) controller.abort(externalSignal.reason);
+  else {
+    externalSignal.addEventListener("abort", () => controller.abort(externalSignal.reason), {
+      once: true,
+    });
+  }
+  return controller.signal;
+}
+
+function throwIfAborted(signal) {
+  if (!signal?.aborted) return;
+  if (signal.reason instanceof Error) throw signal.reason;
+  throw new DOMException("The operation was aborted", "AbortError");
+}
+
 function numberAttribute(el, name, fallback) {
   const value = Number(el.getAttribute(name));
   return Number.isFinite(value) && value >= 0 ? value : fallback;
@@ -46,13 +75,25 @@ function scopeOption(name, scope, fallback = null) {
 
 function getAction(formOrLink, submitter = null) {
   if (submitter?.hasAttribute?.("formaction")) return submitter.getAttribute("formaction");
-  return formOrLink.getAttribute("action") || formOrLink.getAttribute("href");
+  if (formOrLink instanceof HTMLFormElement) {
+    return formOrLink.getAttribute("action") || window.location.href;
+  }
+  return formOrLink.getAttribute("href");
 }
 
 function getMethod(formOrLink, submitter = null) {
-  if (submitter?.hasAttribute?.("formmethod"))
+  if (submitter?.hasAttribute?.("formmethod")) {
     return submitter.getAttribute("formmethod").toUpperCase();
+  }
   return (formOrLink.getAttribute("method") || "GET").toUpperCase();
+}
+
+function getEncoding(form, submitter = null) {
+  return (
+    submitter?.getAttribute?.("formenctype") ||
+    form.getAttribute("enctype") ||
+    "application/x-www-form-urlencoded"
+  ).toLowerCase();
 }
 
 function hasExternalTarget(el, submitter = null) {
@@ -61,11 +102,21 @@ function hasExternalTarget(el, submitter = null) {
 
 function shouldIgnore(el, submitter = null) {
   const action = getAction(el, submitter);
+  const method = getMethod(el, submitter);
   return (
     !action ||
+    method === "DIALOG" ||
+    el.matches?.("a[download]") ||
     hasExternalTarget(el, submitter) ||
     isExternalURL(action) ||
     isSameDocumentAnchor(action)
+  );
+}
+
+function isModifiedClick(event) {
+  return (
+    event.type === "click" &&
+    (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
   );
 }
 
@@ -91,24 +142,48 @@ function formDataFor(form, submitter) {
   return new FormData(form);
 }
 
+function paramsFromFormData(formData) {
+  const params = new URLSearchParams();
+  for (const [name, value] of formData) {
+    params.append(name, value instanceof File ? value.name : value);
+  }
+  return params;
+}
+
+function plainTextFromFormData(formData) {
+  return [...formData]
+    .map(([name, value]) => `${name}=${value instanceof File ? value.name : value}`)
+    .join("\r\n");
+}
+
 function buildRequest(trigger, event) {
   const submitter = submitterFrom(event);
   const action = getAction(trigger, submitter);
   const url = expandURL(action);
   const method = getMethod(trigger, submitter);
+  const headers = {};
   let body = null;
 
   if (trigger instanceof HTMLFormElement) {
     const formData = formDataFor(trigger, submitter);
 
-    if (method === "GET") {
-      url.search = new URLSearchParams(formData).toString();
+    if (method === "GET" || method === "HEAD") {
+      url.search = paramsFromFormData(formData).toString();
     } else {
-      body = formData;
+      const encoding = getEncoding(trigger, submitter);
+      if (encoding === "multipart/form-data") {
+        body = formData;
+      } else if (encoding === "text/plain") {
+        body = plainTextFromFormData(formData);
+        headers["Content-Type"] = "text/plain;charset=UTF-8";
+      } else {
+        body = paramsFromFormData(formData);
+        headers["Content-Type"] = "application/x-www-form-urlencoded;charset=UTF-8";
+      }
     }
   }
 
-  return { url: url.href, method, body, submitter };
+  return { url: url.href, method, body, headers, submitter };
 }
 
 function sameHistoryURL(a, b) {
@@ -142,6 +217,8 @@ function confirmationMessage(trigger, submitter = null) {
 export default class Scope extends HTMLElement {
   #initialized = false;
   #abortController = null;
+  #activeRequestId = null;
+  #requestSequence = 0;
   #autosubmitTimer = null;
 
   static configure(next) {
@@ -171,13 +248,35 @@ export default class Scope extends HTMLElement {
     this.addEventListener("input", this);
     this.addEventListener("change", this);
 
-    queueMicrotask(async () => {
-      log(`Scope init ${this.id || "(no id)"}`);
-      await this.loadContent({ checkExisting: true, userInitiated: false });
-      this.#initialized = true;
+    // A custom element can be moved or temporarily detached. Reconnecting an
+    // already initialized scope must not reload its src or run setup twice.
+    if (this.#initialized) {
       this.markActiveLinks();
-      rememberKeptElements(this);
-      log(`Scope ready ${this.id || "(no id)"}`);
+      return;
+    }
+
+    queueMicrotask(async () => {
+      if (!this.isConnected || this.#initialized) return;
+      log(`Scope init ${this.id || "(no id)"}`);
+      try {
+        await this.loadContent({ checkExisting: true, userInitiated: false });
+        this.#initialized = true;
+        this.markActiveLinks();
+        rememberKeptElements(this);
+        log(`Scope ready ${this.id || "(no id)"}`);
+      } catch (error) {
+        this.#initialized = true;
+        const result = {
+          ok: false,
+          rendered: false,
+          error,
+          status: 0,
+          userInitiated: false,
+        };
+        this.dispatchEvent(new CustomEvent("scope:error", eventDetail(result)));
+        await getConfig().onError(this, result);
+        await this.afterLoad(result);
+      }
     });
   }
 
@@ -200,6 +299,7 @@ export default class Scope extends HTMLElement {
   handleEvent(event) {
     if (event.target.closest?.("sco-pe") !== this) return;
     if (this.hasAttribute("disabled") && this.getAttribute("disabled") !== "false") return;
+    if (isModifiedClick(event)) return;
 
     if (isFieldEvent(event) && this.handleAutosubmit(event)) return;
 
@@ -230,13 +330,14 @@ export default class Scope extends HTMLElement {
 
   handleAutosubmit(event) {
     if (!this.hasAttribute("autosubmit")) return false;
+    if (event.isComposing) return false;
     const field = event.target;
     if (!isSubmittableField(field)) return false;
 
     const form = field.form || field.closest?.("form");
     if (!form || !this.contains(form)) return false;
     if (getMethod(form) !== "GET") return false;
-    if (!getAction(form)) return false;
+    if (shouldIgnore(form)) return false;
 
     const delay = numberAttribute(this, "autosubmit", getConfig().autosubmitDelay);
     clearTimeout(this.#autosubmitTimer);
@@ -248,15 +349,22 @@ export default class Scope extends HTMLElement {
     return true;
   }
 
-  abortLoading() {
+  abortLoading({ cleanup = true } = {}) {
     if (this.#abortController) {
       this.#abortController.abort();
       this.#abortController = null;
     }
+    this.#activeRequestId = null;
+    if (cleanup) {
+      setBusy(this, false);
+      setRevalidating(this, false);
+    }
   }
 
   reload(options = {}) {
-    const url = options.url || this.src || history.state?.scope?.url || window.location.href;
+    const state = history.state?.scope;
+    const currentHistoryURL = state?.id === this.id ? state.url : null;
+    const url = options.url || currentHistoryURL || this.src || window.location.href;
     return this.loadURL(
       url,
       { method: "GET" },
@@ -274,7 +382,7 @@ export default class Scope extends HTMLElement {
   }
 
   async load(trigger, event = null, context = {}) {
-    const { url, method, body, submitter } = buildRequest(trigger, event);
+    const { url, method, body, headers, submitter } = buildRequest(trigger, event);
     const isLink = trigger.matches?.("a[href]");
     const select = scopeOption("select", this);
     const scroll = scopeOption("scroll", this, getConfig().scroll);
@@ -285,52 +393,50 @@ export default class Scope extends HTMLElement {
       isSafeMethod(method) &&
       (isLink || trigger instanceof HTMLFormElement);
 
+    const submitterWasDisabled = submitter?.disabled;
     if (submitter) submitter.disabled = true;
 
     try {
-      if (target && target !== "_self") {
-        const targetScope = document.getElementById(target);
-        if (!(targetScope instanceof Scope)) throw new Error(`Target scope not found: ${target}`);
-        return await targetScope.loadURL(
-          url,
-          { method, body },
-          { ...context, trigger, select, scroll, focus },
-        );
-      }
-
       const result = await this.loadURL(
         url,
-        { method, body },
-        { ...context, trigger, select, scroll, focus },
+        { method, body, headers },
+        { ...context, trigger, select, scroll, focus, target },
       );
 
       if (useHistory && result.ok && !result.aborted) {
         this.updateHistory(result.url || url, select, { replace: Boolean(context.autosubmit) });
       }
 
-      if (isLink && result.ok && !result.aborted) {
-        this.clearActiveLinks();
-        trigger.classList.add(getConfig().activeClass);
-        this.markActiveLinks();
+      if (result.ok && !result.aborted) {
+        const activeURL = useHistory
+          ? window.location.href
+          : isLink
+            ? result.url || url
+            : undefined;
+        this.markActiveLinks(activeURL);
+        const targetScope = result.target ? document.getElementById(result.target) : null;
+        if (targetScope instanceof Scope && targetScope !== this) {
+          targetScope.markActiveLinks(activeURL);
+        }
       }
 
       return result;
     } finally {
-      if (submitter) submitter.disabled = false;
+      if (submitter) submitter.disabled = Boolean(submitterWasDisabled);
     }
   }
 
   async loadContent({ checkExisting = false, userInitiated = false } = {}) {
     if (!this.src) {
       await this.prepareExistingContent();
-      await this.afterLoad({ ok: true, status: 200, userInitiated });
-      return { ok: true };
+      await this.afterLoad({ ok: true, rendered: true, status: 200, userInitiated });
+      return { ok: true, rendered: true };
     }
 
     if (checkExisting && !isNodeEmpty(this)) {
       await this.prepareExistingContent();
-      await this.afterLoad({ ok: true, status: 200, userInitiated });
-      return { ok: true };
+      await this.afterLoad({ ok: true, rendered: true, status: 200, userInitiated });
+      return { ok: true, rendered: true };
     }
 
     return this.loadURL(this.src, { method: "GET" }, { userInitiated });
@@ -339,7 +445,6 @@ export default class Scope extends HTMLElement {
   async prepareExistingContent() {
     // Capture unupgraded declarative markup before module loading can mutate it.
     rememberKeptElements(this);
-    await assets.loadDeclaredAssets(this);
     await assets.loadRegisteredComponents(this);
   }
 
@@ -347,18 +452,13 @@ export default class Scope extends HTMLElement {
     const config = getConfig();
     const absoluteUrl = expandURL(url).href;
     const controller = new AbortController();
-
-    this.abortLoading();
-    this.#abortController = controller;
+    const requestId = ++this.#requestSequence;
 
     const options = {
       method: "GET",
       ...fetchOptions,
-      headers: {
-        ...config.requestHeaders,
-        ...(fetchOptions.headers || {}),
-      },
-      signal: fetchOptions.signal || controller.signal,
+      headers: mergeRequestHeaders(config.requestHeaders, fetchOptions.headers),
+      signal: combineSignals(controller, fetchOptions.signal),
     };
 
     const before = new CustomEvent("scope:before-load", {
@@ -372,49 +472,86 @@ export default class Scope extends HTMLElement {
       },
     });
     this.dispatchEvent(before);
-    if (before.defaultPrevented) return { ok: false, aborted: true };
+    if (before.defaultPrevented) {
+      controller.abort();
+      return { ok: false, aborted: true };
+    }
+
+    // Only an accepted load supersedes the current request. A canceled
+    // navigation must not abort work that is already in flight.
+    this.abortLoading({ cleanup: false });
+    this.#abortController = controller;
+    this.#activeRequestId = requestId;
 
     setBusy(this, true);
     setRevalidating(this, Boolean(context.revalidating));
-    await config.beforeLoad(this, before.detail);
-    log(`${options.method || "GET"} ${absoluteUrl}`);
 
+    let afterLoadStarted = false;
+    let responseStatus = 0;
     try {
+      await config.beforeLoad(this, before.detail);
+      log(`${options.method || "GET"} ${absoluteUrl}`);
       const response = await config.fetch(absoluteUrl, options);
-      const result = await this.processResponse(response, { ...context, requestUrl: absoluteUrl });
-      await this.afterLoad(result);
+      responseStatus = response.status;
+      const result = await this.processResponse(response, {
+        ...context,
+        requestUrl: absoluteUrl,
+        signal: options.signal,
+      });
+      if (this.#activeRequestId === requestId) {
+        afterLoadStarted = true;
+        await this.afterLoad(result);
+      }
       return result;
     } catch (error) {
       const aborted = error?.name === "AbortError";
+      const stale = this.#activeRequestId !== requestId;
       const result = {
         ok: false,
         error,
         aborted,
-        status: 0,
+        stale,
+        rendered: false,
+        status: responseStatus,
         userInitiated: context.userInitiated,
         revalidating: context.revalidating,
       };
-      if (!aborted) {
+      if (!aborted && !stale) {
         this.dispatchEvent(new CustomEvent("scope:error", eventDetail(result)));
-        config.onError(this, result);
+        await config.onError(this, result);
       }
-      await this.afterLoad(result);
+      if (!stale && !afterLoadStarted) {
+        afterLoadStarted = true;
+        await this.afterLoad(result);
+      }
       return result;
     } finally {
-      if (this.#abortController === controller) this.#abortController = null;
+      if (this.#activeRequestId === requestId) {
+        setBusy(this, false);
+        setRevalidating(this, false);
+        this.#activeRequestId = null;
+        this.#abortController = null;
+      }
     }
   }
 
   async processResponse(response, context = {}) {
+    throwIfAborted(context.signal);
     const config = getConfig();
     const status = response.status;
-    const ok = response.ok || status === 400 || status === 422;
-    const headerDetail = this.readHeaders(response);
+    const ok = response.ok || status === 304;
+    const responseHeaders = this.readHeaders(response);
+    const headerDetail = {
+      ...responseHeaders,
+      statusMessage: responseHeaders.statusMessage ?? context.statusMessage,
+      alertMessage: responseHeaders.alertMessage ?? context.alertMessage,
+    };
 
     if (headerDetail.redirect) {
       window.location.assign(expandURL(headerDetail.redirect).href);
       return {
         ok: true,
+        rendered: false,
         status,
         redirected: headerDetail.redirect,
         url: headerDetail.redirect,
@@ -427,6 +564,7 @@ export default class Scope extends HTMLElement {
       window.location.reload();
       return {
         ok: true,
+        rendered: false,
         status,
         reloaded: true,
         userInitiated: context.userInitiated,
@@ -437,21 +575,31 @@ export default class Scope extends HTMLElement {
     if (headerDetail.title) document.title = headerDetail.title;
 
     if (headerDetail.location) {
-      const redirected = await this.loadURL(headerDetail.location, { method: "GET" }, context);
+      const redirected = await this.loadURL(
+        headerDetail.location,
+        { method: "GET" },
+        {
+          ...context,
+          statusMessage: headerDetail.statusMessage,
+          alertMessage: headerDetail.alertMessage,
+        },
+      );
       return { ...redirected, redirected: headerDetail.location };
     }
 
-    await assets.loadStyles(headerDetail.styles);
-    await assets.loadScripts(headerDetail.scripts);
-
-    if (status === 204 || status === 304) {
+    if (status === 204 || status === 205 || status === 304) {
       announce(this, headerDetail);
       return {
         ok,
+        rendered: false,
+        unchanged: status !== 205,
+        reset: status === 205,
         status,
         url: response.url || context.requestUrl,
         userInitiated: context.userInitiated,
         revalidating: context.revalidating,
+        statusMessage: headerDetail.statusMessage,
+        alertMessage: headerDetail.alertMessage,
       };
     }
 
@@ -462,28 +610,70 @@ export default class Scope extends HTMLElement {
       );
     }
 
+    await assets.loadStyles(headerDetail.styles);
+    await assets.loadScripts(headerDetail.scripts);
+    throwIfAborted(context.signal);
+
     const text = await response.text();
+    throwIfAborted(context.signal);
     const parsed = parseHTML(text);
 
-    await assets.loadDeclaredAssets(parsed.root);
-
     const select = headerDetail.select || context.select || this.getAttribute("select");
-    const target = headerDetail.target;
-    if (target && target !== this.id) {
+    const target = headerDetail.target || context.target;
+    if (target && target !== "_self" && target !== this.id) {
       const targetScope = document.getElementById(target);
-      if (targetScope instanceof Scope) {
-        return targetScope.processParsedResponse(parsed, response, {
+      if (!(targetScope instanceof Scope)) throw new Error(`Target scope not found: ${target}`);
+
+      // A routed response becomes the newest content for the target scope and
+      // therefore supersedes any request that target started for itself.
+      targetScope.abortLoading({ cleanup: false });
+      setBusy(targetScope, true);
+      setRevalidating(targetScope, Boolean(context.revalidating));
+      try {
+        const result = await targetScope.processParsedResponse(parsed, response, {
           ...context,
           ...headerDetail,
           select,
+          source: this.id || null,
+          target: targetScope.id,
         });
+        await targetScope.afterLoad(result);
+        return { ...result, source: this.id || null, target: targetScope.id };
+      } catch (error) {
+        const aborted = error?.name === "AbortError" || context.signal?.aborted;
+        const result = {
+          ok: false,
+          rendered: false,
+          error,
+          aborted,
+          status,
+          userInitiated: context.userInitiated,
+          revalidating: context.revalidating,
+          source: this.id || null,
+          target: targetScope.id,
+        };
+        if (aborted) {
+          setBusy(targetScope, false);
+          setRevalidating(targetScope, false);
+        } else {
+          targetScope.dispatchEvent(new CustomEvent("scope:error", eventDetail(result)));
+          await targetScope.afterLoad(result);
+        }
+        throw error;
       }
     }
 
-    return this.processParsedResponse(parsed, response, { ...context, ...headerDetail, select });
+    return this.processParsedResponse(parsed, response, {
+      ...context,
+      ...headerDetail,
+      select,
+      source: context.source || this.id || null,
+      target: this.id || null,
+    });
   }
 
   async processParsedResponse(parsed, response, context = {}) {
+    throwIfAborted(context.signal);
     const replacement = this.selectReplacement(parsed, context.select);
     const status = response.status;
 
@@ -492,49 +682,62 @@ export default class Scope extends HTMLElement {
     const beforeSwap = new CustomEvent("scope:before-swap", {
       bubbles: true,
       cancelable: true,
-      detail: { response, replacement, status },
+      detail: {
+        response,
+        replacement,
+        status,
+        source: context.source || this.id || null,
+        target: context.target || this.id || null,
+      },
     });
     this.dispatchEvent(beforeSwap);
     if (beforeSwap.defaultPrevented) {
       return {
-        ok: false,
+        ok: response.ok,
+        rendered: false,
         aborted: true,
         status,
         userInitiated: context.userInitiated,
         revalidating: context.revalidating,
       };
     }
+    throwIfAborted(context.signal);
 
     const scrollMode = context.scroll || getConfig().scroll;
     const restoreScroll = scrollMode === "keep" ? saveScrollPositions(this) : null;
 
-    if (replacement.scope) copyScopeAttributes(this, replacement.scope);
-
     const fragment = createReplacementFragment(this, replacement.html);
     const serverSnapshots = snapshotKeptElements(this, fragment);
-    await replaceChildren(this, fragment, swapKeptChildren);
+    await assets.loadRegisteredComponents(fragment);
+    throwIfAborted(context.signal);
+    if (replacement.scope) copyScopeAttributes(this, replacement.scope);
+    replaceChildren(this, fragment, swapKeptChildren);
+    throwIfAborted(context.signal);
     rememberServerSnapshots(this, serverSnapshots);
     rememberKeptElements(this);
-
-    await assets.loadRegisteredComponents(this);
 
     if (parsed.isFullDocument && parsed.root instanceof Document) {
       const title = parsed.root.querySelector("title")?.textContent?.trim();
       if (title && !context.title) document.title = title;
-      copyDocumentAttributes(parsed.root);
-      copyBodyAttributes(parsed.root.body);
+      if (getConfig().syncDocumentAttributes) {
+        copyDocumentAttributes(parsed.root);
+        copyBodyAttributes(parsed.root.body);
+      }
     }
 
     const detail = {
-      ok: response.ok || status === 400 || status === 422,
+      ok: response.ok,
+      rendered: true,
       status,
-      url: response.url,
+      url: response.url || context.requestUrl,
       userInitiated: context.userInitiated,
       revalidating: context.revalidating,
       statusMessage: context.statusMessage,
       alertMessage: context.alertMessage,
       focus: context.focus,
       scroll: context.scroll,
+      source: context.source || this.id || null,
+      target: context.target || this.id || null,
     };
 
     this.dispatchEvent(new CustomEvent("scope:after-swap", eventDetail(detail)));
@@ -551,10 +754,10 @@ export default class Scope extends HTMLElement {
     return {
       location: response.headers.get(headers.location),
       redirect: response.headers.get(headers.redirect),
-      reload: response.headers.get(headers.reload),
-      title: response.headers.get(headers.title),
-      statusMessage: response.headers.get(headers.status),
-      alertMessage: response.headers.get(headers.alert),
+      reload: parseBool(response.headers.get(headers.reload), false),
+      title: decodeHeader(response.headers.get(headers.title)),
+      statusMessage: decodeHeader(response.headers.get(headers.status)),
+      alertMessage: decodeHeader(response.headers.get(headers.alert)),
       scripts: splitHeader(response.headers.get(headers.script)),
       styles: splitHeader(response.headers.get(headers.style)),
       select: response.headers.get(headers.select),
@@ -583,6 +786,7 @@ export default class Scope extends HTMLElement {
 
     const firstScope = root.querySelector?.("sco-pe");
     if (!this.id && firstScope) return { scope: firstScope, html: firstScope.innerHTML };
+    if (this.id && firstScope) return null;
 
     if (parsed.isFullDocument && root instanceof Document && root.body) {
       return { scope: null, html: root.body.innerHTML };
@@ -600,7 +804,11 @@ export default class Scope extends HTMLElement {
     const detail = { scope: this, ...result };
     this.dispatchEvent(new CustomEvent("scope:load", eventDetail(detail)));
     await getConfig().afterLoad(this, detail);
-    await getConfig().onLoad(this, detail);
+    // Compatibility callback for the request owner. Cross-target responses
+    // run afterLoad for both scopes, but onLoad only once on the source scope.
+    if (!detail.source || detail.source === this.id) {
+      await getConfig().onLoad(this, detail);
+    }
   }
 
   shouldUseHistory() {
@@ -625,15 +833,17 @@ export default class Scope extends HTMLElement {
 
   clearActiveLinks() {
     this.querySelectorAll(`.${CSS.escape(getConfig().activeClass)}`).forEach((el) => {
+      if (el.closest("sco-pe") !== this) return;
       el.classList.remove(getConfig().activeClass);
       el.removeAttribute("aria-current");
     });
   }
 
-  markActiveLinks() {
-    const current = stripHash(window.location.href);
+  markActiveLinks(url = window.location.href) {
+    const current = stripHash(url || window.location.href);
     let matched = false;
     this.querySelectorAll("a[href]").forEach((link) => {
+      if (link.closest("sco-pe") !== this) return;
       if (isSameDocumentAnchor(link.href)) return;
       const active = stripHash(link.href) === current;
       if (active && !matched) {
@@ -657,7 +867,15 @@ window.addEventListener("popstate", (event) => {
 
   const scope = document.getElementById(state.id);
   if (scope instanceof Scope) {
-    scope.loadURL(state.url, { method: "GET" }, { userInitiated: true, select: state.select });
+    scope
+      .loadURL(state.url, { method: "GET" }, { userInitiated: true, select: state.select })
+      .then((result) => {
+        // If the scoped restoration could not render anything, fall back to
+        // the browser so the URL and document cannot remain out of sync.
+        if (!result.rendered && !result.ok && !result.aborted && !result.stale) {
+          window.location.replace(window.location.href);
+        }
+      });
   } else {
     window.location.replace(window.location.href);
   }

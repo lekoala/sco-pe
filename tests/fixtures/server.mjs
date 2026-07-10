@@ -27,6 +27,18 @@ function page(body) {
 </html>`;
 }
 
+function pageWithModule(body, src) {
+  return page(`<script type="module" src="${src}"></script>${body}`);
+}
+
+function demoWidgetPage(body) {
+  return pageWithModule(body, "/tests/fixtures/demo-widget.js");
+}
+
+function stateWidgetPage(body) {
+  return pageWithModule(body, "/tests/fixtures/state-widget.js");
+}
+
 function send(res, status, body, headers = {}) {
   res.writeHead(status, { "Content-Type": "text/html; charset=utf-8", ...headers });
   res.end(body);
@@ -46,6 +58,24 @@ function parseMultipartText(raw, name) {
   const after = raw.slice(raw.indexOf(marker));
   const value = after.split("\r\n\r\n")[1]?.split("\r\n")[0];
   return value || "";
+}
+
+async function readRequestBody(req) {
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+function bodyValue(raw, contentType, name) {
+  if (contentType.startsWith("multipart/form-data")) return parseMultipartText(raw, name);
+  if (contentType.startsWith("application/x-www-form-urlencoded")) {
+    return new URLSearchParams(raw).get(name) || "";
+  }
+  if (contentType.startsWith("text/plain")) {
+    const line = raw.split(/\r?\n/).find((entry) => entry.startsWith(`${name}=`));
+    return line?.slice(name.length + 1) || "";
+  }
+  return "";
 }
 
 const server = createServer(async (req, res) => {
@@ -265,6 +295,90 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/json-script") {
+    res.writeHead(200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Scope-Alert": "JSON script refused",
+      "Scope-Script": "/tests/fixtures/bad-module.js",
+    });
+    res.end(JSON.stringify({ html: '<sco-pe id="main"><h1>Should not render</h1></sco-pe>' }));
+    return;
+  }
+
+  if (url.pathname === "/native-links") {
+    send(
+      res,
+      200,
+      page(
+        scope(
+          "Native links",
+          `<a id="download-link" href="/native-destination" download>Download</a>
+           <a id="modified-link" href="/native-destination">Modified</a>
+           <a id="empty-anchor" href="#">Top</a>`,
+        ),
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/native-destination") {
+    send(res, 200, scope("Native destination"));
+    return;
+  }
+
+  if (url.pathname === "/attrs") {
+    send(
+      res,
+      200,
+      page(
+        scope(
+          "Attrs",
+          `<a id="attrs-link" href="/attrs-response">Replace</a>`,
+          'src="/attrs-fragment" history="true" scroll="keep" focus="heading" autosubmit="60" keep="same-html" transition="fade" class="client-owned"',
+        ),
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/attrs-fragment") {
+    send(res, 200, scope("Attrs fragment"));
+    return;
+  }
+
+  if (url.pathname === "/attrs-response") {
+    send(
+      res,
+      200,
+      '<sco-pe id="main" class="server-decoration"><h1>Attrs replaced</h1><a id="attrs-clear-link" href="/attrs-response-clear">Clear decoration</a></sco-pe>',
+    );
+    return;
+  }
+
+  if (url.pathname === "/attrs-response-clear") {
+    send(res, 200, '<sco-pe id="main"><h1>Attrs cleared</h1></sco-pe>');
+    return;
+  }
+
+  if (url.pathname === "/dialog-form") {
+    send(
+      res,
+      200,
+      page(
+        scope(
+          "Dialog form",
+          `<form id="dialog-form" method="dialog" action="/dialog-submit"><button>Close</button></form>`,
+        ),
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/dialog-submit") {
+    send(res, 200, scope("Dialog submitted"));
+    return;
+  }
+
   if (url.pathname === "/hash") {
     send(
       res,
@@ -367,11 +481,10 @@ const server = createServer(async (req, res) => {
   }
 
   if (url.pathname === "/external-override" && req.method === "POST") {
-    const chunks = [];
-    for await (const chunk of req) chunks.push(chunk);
-    const raw = Buffer.concat(chunks).toString("utf8");
-    const name = parseMultipartText(raw, "name");
-    const external = parseMultipartText(raw, "external");
+    const raw = await readRequestBody(req);
+    const contentType = req.headers["content-type"] || "";
+    const name = bodyValue(raw, contentType, "name");
+    const external = bodyValue(raw, contentType, "external");
     send(res, 200, scope(`External: ${name} / ${external}`));
     return;
   }
@@ -409,11 +522,11 @@ const server = createServer(async (req, res) => {
     send(
       res,
       200,
-      page(
+      demoWidgetPage(
         scope(
           "Keep",
           `
-      <template scope-assets><script type="module" src="/tests/fixtures/demo-widget.js"></script></template>
+      
       <a id="refresh-keep-widget" href="/keep-refresh">Refresh</a>
       <demo-widget id="expensive-widget">server widget</demo-widget>
     `,
@@ -431,7 +544,7 @@ const server = createServer(async (req, res) => {
       scope(
         "Keep refreshed",
         `
-      <template scope-assets><script type="module" src="/tests/fixtures/demo-widget.js"></script></template>
+      
       <a id="refresh-keep-widget" href="/keep-refresh">Refresh</a>
       <demo-widget id="expensive-widget">server widget</demo-widget>
     `,
@@ -610,9 +723,70 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/cancel-preserve") {
+    send(
+      res,
+      200,
+      page(
+        `${scope(
+          "Cancel preserve",
+          '<a id="preserved-slow" href="/slow-one">Slow</a> <a id="canceled-next" href="/blocked">Canceled</a>',
+        )}
+        <script>document.addEventListener("scope:before-load", (event) => { if (event.detail.url.endsWith("/blocked")) event.preventDefault(); });</script>`,
+      ),
+    );
+    return;
+  }
+
   if (url.pathname === "/slow-one" || url.pathname === "/slow-two") {
     if (url.pathname === "/slow-one") await new Promise((resolve) => setTimeout(resolve, 150));
     send(res, 200, scope(url.pathname === "/slow-one" ? "Slow one" : "Slow two"));
+    return;
+  }
+
+  if (url.pathname === "/busy-race") {
+    send(
+      res,
+      200,
+      page(
+        scope(
+          "Busy race",
+          '<a id="busy-one" href="/busy-one">One</a> <a id="busy-two" href="/busy-two">Two</a>',
+        ),
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/asset-race") {
+    send(
+      res,
+      200,
+      page(
+        scope(
+          "Asset race",
+          '<a id="asset-slow" href="/asset-slow">Slow asset</a> <a id="asset-fast" href="/asset-fast">Fast</a>',
+        ),
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/asset-slow") {
+    send(res, 200, scope("Asset slow"), {
+      "Scope-Script": "/tests/fixtures/slow-module.js",
+    });
+    return;
+  }
+
+  if (url.pathname === "/asset-fast") {
+    send(res, 200, scope("Asset fast"));
+    return;
+  }
+
+  if (url.pathname === "/busy-one" || url.pathname === "/busy-two") {
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    send(res, 200, scope(url.pathname === "/busy-one" ? "Busy one" : "Busy two"));
     return;
   }
 
@@ -661,6 +835,313 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/history-two") {
     send(res, 200, scope("History two"));
+    return;
+  }
+
+  if (url.pathname === "/request-header") {
+    send(
+      res,
+      200,
+      page(
+        scope(
+          "Request header",
+          '<a id="request-header-link" href="/request-header-result">Check</a>',
+        ),
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/request-header-result") {
+    send(
+      res,
+      200,
+      scope(
+        `Request: ${req.headers["scope-request"] || "missing"} / ${req.headers["x-requested-with"] || "none"}`,
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/encoding") {
+    send(
+      res,
+      200,
+      page(
+        scope(
+          "Encoding",
+          `
+          <form id="encoding-form" action="/encoding-submit" method="post">
+            <input name="name" value="Ada">
+            <button id="urlencoded-submit" name="command" value="default">Default</button>
+            <button id="multipart-submit" name="command" value="multipart" formenctype="multipart/form-data">Multipart</button>
+            <button id="plain-submit" name="command" value="plain" formenctype="text/plain">Plain</button>
+          </form>`,
+        ),
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/encoding-submit" && req.method === "POST") {
+    const raw = await readRequestBody(req);
+    const contentType = req.headers["content-type"] || "";
+    send(
+      res,
+      200,
+      scope(
+        `Encoding: ${contentType.split(";")[0]} / ${bodyValue(raw, contentType, "name")} / ${bodyValue(raw, contentType, "command")}`,
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/location-status") {
+    send(
+      res,
+      200,
+      page(
+        scope(
+          "Location status",
+          '<a id="location-status-link" href="/location-status-start">Save</a>',
+        ),
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/location-status-start") {
+    send(res, 200, "", {
+      "Scope-Location": "/location-status-result",
+      "Scope-Status": "Saved before scoped redirect",
+    });
+    return;
+  }
+
+  if (url.pathname === "/location-status-result") {
+    send(res, 200, scope("Location status complete"));
+    return;
+  }
+
+  if (url.pathname === "/document-attrs") {
+    send(
+      res,
+      200,
+      `<!doctype html><html lang="en" class="client-html" data-theme="client"><head><title>Client attrs</title><script type="module" src="/sco-pe.js"></script></head><body class="client-body" style="--client: 1"><div id="scope-status" role="status"></div><div id="scope-alert" role="alert"></div><sco-pe id="main" history="true"><h1>Document attrs</h1><a id="document-attrs-link" href="/document-attrs-response">Update</a></sco-pe></body></html>`,
+    );
+    return;
+  }
+
+  if (url.pathname === "/document-attrs-response") {
+    send(
+      res,
+      200,
+      `<!doctype html><html lang="fr" class="server-html" data-theme="server"><head><title>Server attrs</title></head><body class="server-body" style="--server: 1"><sco-pe id="main"><h1>Document attrs updated</h1><a id="document-attrs-link" href="/document-attrs-response">Update</a></sco-pe></body></html>`,
+    );
+    return;
+  }
+
+  if (url.pathname === "/local-alert") {
+    send(
+      res,
+      200,
+      page(scope("Local alert", '<a id="local-alert-link" href="/local-alert-response">Fail</a>')),
+    );
+    return;
+  }
+
+  if (url.pathname === "/local-alert-response") {
+    send(res, 422, scope("Local alert failed", '<div role="alert">Local validation error</div>'));
+    return;
+  }
+
+  if (url.pathname === "/keep-changed") {
+    send(
+      res,
+      200,
+      stateWidgetPage(
+        scope(
+          "Keep changed",
+          `<a id="keep-changed-link" href="/keep-changed-result">Change</a><state-widget id="changed-widget" data-version="1">one</state-widget>`,
+          'history="true" keep="same-html"',
+        ),
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/keep-insert") {
+    send(
+      res,
+      200,
+      stateWidgetPage(
+        scope(
+          "Keep insert",
+          `<a id="keep-insert-link" href="/keep-insert-result">Insert</a><state-widget id="insert-widget">Stable</state-widget>`,
+          'history="true" keep="same-html"',
+        ),
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/keep-insert-result") {
+    send(
+      res,
+      200,
+      scope(
+        "Keep insert result",
+        `<state-widget id="insert-widget">Stable</state-widget><section id="inserted-panel"><p>Inserted safely</p></section>`,
+        'history="true" keep="same-html"',
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/reconnect") {
+    send(res, 200, page('<sco-pe id="main" src="/reconnect-content" history="true"></sco-pe>'));
+    return;
+  }
+
+  if (url.pathname === "/reconnect-content") {
+    send(res, 200, scope("Reconnect content", '<p id="reconnect-marker">Stable</p>'));
+    return;
+  }
+
+  if (url.pathname === "/keep-changed-result") {
+    send(
+      res,
+      200,
+      scope(
+        "Keep changed result",
+        `<state-widget id="changed-widget" data-version="2">two</state-widget>`,
+        'history="true" keep="same-html"',
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/keep-reorder") {
+    send(
+      res,
+      200,
+      stateWidgetPage(
+        scope(
+          "Keep reorder",
+          `<a id="keep-reorder-link" href="/keep-reorder-result">Reorder</a><div id="widget-list"><state-widget id="widget-a">A</state-widget><p id="middle">Middle</p><state-widget id="widget-b">B</state-widget></div>`,
+          'history="true" keep="same-html"',
+        ),
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/keep-reorder-result") {
+    send(
+      res,
+      200,
+      scope(
+        "Keep reorder result",
+        `<div id="widget-list"><state-widget id="widget-b">B</state-widget><p id="middle">Middle updated</p><state-widget id="widget-a">A</state-widget></div>`,
+        'history="true" keep="same-html"',
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/keep-validation") {
+    send(
+      res,
+      200,
+      stateWidgetPage(
+        scope(
+          "Keep validation",
+          `<form action="/keep-validation-result" method="post"><fieldset id="widget-field"><legend>Widget</legend><state-widget id="form-widget">Stable</state-widget></fieldset><button id="keep-validation-submit">Submit</button></form>`,
+          'history="true" keep="same-html"',
+        ),
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/keep-validation-result" && req.method === "POST") {
+    send(
+      res,
+      422,
+      scope(
+        "Keep validation failed",
+        `<form action="/keep-validation-result" method="post"><div role="alert" tabindex="-1">Please fix the form</div><fieldset id="widget-field"><legend>Widget</legend><state-widget id="form-widget">Stable</state-widget><p id="widget-error">A server error</p></fieldset><button>Submit</button></form>`,
+        'history="true" keep="same-html"',
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/transition-widget") {
+    send(
+      res,
+      200,
+      stateWidgetPage(
+        scope(
+          "Transition widget",
+          `<a id="transition-widget-link" href="/transition-widget-next">Next</a><state-widget id="transition-state-widget">Stable</state-widget>`,
+          'history="true" transition="fade" transition-timeout="200"',
+        ),
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/transition-widget-next") {
+    send(
+      res,
+      200,
+      scope(
+        "Transition widget next",
+        "<p>Done</p>",
+        'history="true" transition="fade" transition-timeout="200"',
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/inline-script") {
+    send(
+      res,
+      200,
+      page(
+        scope(
+          "Inline script",
+          '<a id="inline-script-link" href="/inline-script-response">Load</a>',
+        ),
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/inline-script-response") {
+    send(
+      res,
+      200,
+      scope(
+        "Inline script removed",
+        '<script>window.__inlineScriptExecuted = true</script><style id="inline-style">#inline-result{color:red}</style><link id="inline-link" rel="stylesheet" href="/static/demo.css"><p id="inline-result">Safe markup</p>',
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/mismatched-scope") {
+    send(
+      res,
+      200,
+      page(scope("Mismatch", '<a id="mismatch-link" href="/mismatched-scope-response">Load</a>')),
+    );
+    return;
+  }
+
+  if (url.pathname === "/mismatched-scope-response") {
+    send(res, 200, '<sco-pe id="other"><h1>Wrong scope</h1></sco-pe>');
     return;
   }
 

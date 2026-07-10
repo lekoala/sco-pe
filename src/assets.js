@@ -11,6 +11,19 @@ function assertAllowedAsset(url) {
   }
 }
 
+function retryable(map, key, load) {
+  if (!map.has(key)) {
+    const promise = Promise.resolve()
+      .then(load)
+      .catch((error) => {
+        map.delete(key);
+        throw error;
+      });
+    map.set(key, promise);
+  }
+  return map.get(key);
+}
+
 export class AssetLoader {
   async loadStyles(hrefs = []) {
     await Promise.all(hrefs.map((href) => this.loadStyle(href)));
@@ -24,77 +37,39 @@ export class AssetLoader {
     const url = expandURL(href).href;
     assertAllowedAsset(url);
 
-    if (stylePromises.has(url)) {
-      return stylePromises.get(url);
-    }
+    return retryable(stylePromises, url, () => {
+      const existing = [...document.querySelectorAll('link[rel="stylesheet"]')].find(
+        (link) => link.href === url,
+      );
+      if (existing?.sheet) return existing;
 
-    const existing = [...document.querySelectorAll('link[rel="stylesheet"]')].find(
-      (link) => link.href === url,
-    );
-    if (existing) {
-      const promise = existing.sheet
-        ? Promise.resolve(existing)
-        : new Promise((resolve) => {
-            existing.addEventListener("load", () => resolve(existing), { once: true });
-            existing.addEventListener("error", () => resolve(existing), { once: true });
-          });
-      stylePromises.set(url, promise);
-      return promise;
-    }
+      log(`Loading style ${url}`);
+      const link = existing || document.createElement("link");
+      if (!existing) {
+        link.rel = "stylesheet";
+        link.href = url;
+        document.head.appendChild(link);
+      }
 
-    log(`Loading style ${url}`);
-    const promise = new Promise((resolve) => {
-      const link = document.createElement("link");
-      link.rel = "stylesheet";
-      link.href = url;
-      link.addEventListener("load", () => resolve(link), { once: true });
-      link.addEventListener("error", () => resolve(link), { once: true });
-      document.head.appendChild(link);
+      return new Promise((resolve, reject) => {
+        link.addEventListener("load", () => resolve(link), { once: true });
+        link.addEventListener(
+          "error",
+          () => reject(new Error(`Could not load scope style: ${url}`)),
+          { once: true },
+        );
+      });
     });
-
-    stylePromises.set(url, promise);
-    return promise;
   }
 
   loadModule(src) {
     const url = expandURL(src).href;
     assertAllowedAsset(url);
 
-    if (!modulePromises.has(url)) {
+    return retryable(modulePromises, url, () => {
       log(`Loading module ${url}`);
-      modulePromises.set(url, import(/* @vite-ignore */ url));
-    }
-
-    return modulePromises.get(url);
-  }
-
-  async loadDeclaredAssets(root) {
-    const styles = [];
-    const scripts = [];
-    const templates = root.querySelectorAll?.("template[scope-assets]") || [];
-
-    templates.forEach((template) => {
-      template.content.querySelectorAll('link[rel="stylesheet"][href]').forEach((link) => {
-        styles.push(link.getAttribute("href"));
-      });
-
-      template.content.querySelectorAll("script[src]").forEach((script) => {
-        const type = script.getAttribute("type") || "text/javascript";
-        const config = getConfig();
-        if (type === "module") {
-          scripts.push(script.getAttribute("src"));
-        } else if (config.allowClassicScripts) {
-          scripts.push(script.getAttribute("src"));
-        } else {
-          log(`Ignored non-module declared script ${script.getAttribute("src")}`);
-        }
-      });
-
-      template.remove();
+      return import(/* @vite-ignore */ url);
     });
-
-    await this.loadStyles(styles);
-    await this.loadScripts(scripts);
   }
 
   async loadRegisteredComponents(root) {
@@ -116,7 +91,9 @@ export class AssetLoader {
           return;
         }
         await this.loadModule(src);
-        await customElements.whenDefined(tag);
+        if (!customElements.get(tag)) {
+          throw new Error(`Registered module did not define <${tag}>: ${src}`);
+        }
       }),
     );
   }

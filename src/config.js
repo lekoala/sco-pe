@@ -15,15 +15,16 @@ export const DEFAULT_HEADERS = Object.freeze({
 
 export function defaultRenderableResponse(response) {
   const contentType = response.headers.get("content-type") || "";
-  return /(^|;)\s*(text\/html|application\/xhtml\+xml)\b/i.test(contentType);
+  const mimeType = contentType.split(";", 1)[0].trim().toLowerCase();
+  return mimeType === "text/html" || mimeType === "application/xhtml+xml";
 }
 
 export const DEFAULT_CONFIG = {
   debug: false,
   activeClass: "active",
   requestHeaders: {
-    "X-Requested-With": "XMLHttpRequest",
-    Accept: "text/html, */*;q=0.8",
+    "Scope-Request": "true",
+    Accept: "text/html, application/xhtml+xml;q=0.9",
   },
   headers: DEFAULT_HEADERS,
   statusTarget: null,
@@ -36,7 +37,7 @@ export const DEFAULT_CONFIG = {
   transitionTimeout: 250,
   components: {},
   allowExternalAssets: false,
-  allowClassicScripts: false,
+  syncDocumentAttributes: false,
   renderableResponse: defaultRenderableResponse,
   confirmHandler: (message) => Promise.resolve(window.confirm(message)),
   fetch: (...args) => fetch(...args),

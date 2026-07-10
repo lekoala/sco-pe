@@ -1,6 +1,8 @@
 import { getConfig, log } from "./config.js";
 import { isNaturallyFocusable } from "./dom.js";
 
+const liveRegionFrames = new WeakMap();
+
 function resolveTarget(selectorOrElement, fallbackSelector) {
   if (selectorOrElement instanceof Element) return selectorOrElement;
   if (selectorOrElement) return document.querySelector(selectorOrElement);
@@ -11,6 +13,27 @@ function readMessage(root, selector) {
   const el = root.querySelector?.(selector);
   const text = el?.textContent?.trim();
   return text || null;
+}
+
+function updateLiveRegion(target, message) {
+  if (!target) return;
+  const pending = liveRegionFrames.get(target);
+  if (pending) {
+    cancelAnimationFrame(pending);
+    liveRegionFrames.delete(target);
+  }
+  if (target.textContent?.trim() !== message) {
+    target.textContent = message;
+    return;
+  }
+
+  // Repeating an identical message often needs a real DOM change to be announced.
+  target.textContent = "";
+  const frame = requestAnimationFrame(() => {
+    liveRegionFrames.delete(target);
+    target.textContent = message;
+  });
+  liveRegionFrames.set(target, frame);
 }
 
 export function setBusy(scope, busy) {
@@ -29,20 +52,30 @@ export function announce(scope, detail = {}) {
   const mode = scope.getAttribute("announce") || config.announce || "auto";
   if (mode === "none") return;
 
-  const statusMessage = detail.statusMessage || readMessage(scope, "[role='status']");
-  const alertMessage = detail.alertMessage || readMessage(scope, "[role='alert']");
+  const headerStatus = detail.statusMessage?.trim?.() || null;
+  const headerAlert = detail.alertMessage?.trim?.() || null;
+  const localStatus = headerStatus ? null : readMessage(scope, "[role='status']");
+  const localAlert = headerAlert ? null : readMessage(scope, "[role='alert']");
+  const statusMessage = headerStatus || localStatus;
+  const alertMessage = headerAlert || localAlert;
 
   if (statusMessage && mode !== "alert") {
-    const target = resolveTarget(config.statusTarget, "#scope-status, [role='status']");
-    if (target) target.textContent = statusMessage;
+    // In-scope live regions announce themselves when inserted. Only mirror
+    // header messages into the application's persistent status region.
+    if (headerStatus) {
+      updateLiveRegion(resolveTarget(config.statusTarget, "#scope-status"), statusMessage);
+    }
     scope.dispatchEvent(
       new CustomEvent("scope:status", { bubbles: true, detail: { message: statusMessage } }),
     );
   }
 
   if (alertMessage && mode !== "status") {
-    const target = resolveTarget(config.alertTarget, "#scope-alert, [role='alert']");
-    if (target) target.textContent = alertMessage;
+    // Avoid announcing validation summaries twice: a newly inserted role=alert
+    // is already live, while Scope-Alert needs the persistent global region.
+    if (headerAlert) {
+      updateLiveRegion(resolveTarget(config.alertTarget, "#scope-alert"), alertMessage);
+    }
     scope.dispatchEvent(
       new CustomEvent("scope:alert", { bubbles: true, detail: { message: alertMessage } }),
     );
@@ -58,7 +91,11 @@ export function focusAfterSwap(scope, detail = {}) {
   let target = null;
 
   if (mode === "first-error" || (mode === "auto" && detail.status >= 400)) {
-    target = scope.querySelector("[role='alert'], [aria-invalid='true']");
+    target = scope.querySelector("[role='alert'][tabindex], [role='alert'], [aria-invalid='true']");
+  }
+
+  if (!target && mode === "heading") {
+    target = scope.querySelector("h1, h2, [role='heading']");
   }
 
   if (!target && mode !== "first-error") {

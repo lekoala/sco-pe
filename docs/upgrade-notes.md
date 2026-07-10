@@ -42,7 +42,7 @@ The previous `data-scope-*` patterns are not part of the proposed public API, ex
 | `data-scope-action`, `data-scope-method` | Native `action`, `method`, `formaction`, `formmethod` |
 | `data-scope-scroll`, `data-scope-focus` | `scroll`, `focus` on `<sco-pe>` |
 | `data-scope-status`, `data-scope-alert` | `Scope-Status`, `Scope-Alert` headers or live regions |
-| `data-scope-assets` | `Scope-Script`, `Scope-Style`, or `template[scope-assets]` |
+| `data-scope-assets` | `Scope-Script`, `Scope-Style`, or the custom-element registry |
 | `data-scope-confirm` | `data-confirm` on the form/link; submitters may override it |
 | `data-scope-fragment` | `select` on `<sco-pe>` or `Scope-Select` response header |
 | `data-scope-on` | `scope:*` lifecycle event listeners |
@@ -81,14 +81,17 @@ Scope-Target
 
 ## Scripts
 
-Fetched inline scripts are not executed. Use one of these instead:
+Fetched script and style assets are removed. Use one of these instead:
 
 1. `Scope-Script: /assets/admin/form.js`;
-2. `<template scope-assets><script type="module" src="..."></script></template>`;
-3. registered custom element modules through `components` config;
-4. lifecycle event listeners registered by a loaded module.
+2. registered custom element modules through `components` config;
+3. lifecycle event listeners registered by a loaded module.
 
 Modules should be idempotent. A good module registers custom elements or event handlers. It should not assume it runs once per partial swap.
+
+There is intentionally no asset declaration attribute on native HTML elements. Dynamic requirements belong in response headers; known custom-element mappings belong in JavaScript configuration.
+
+The old global `onLoad` callback remains as a compatibility hook and now runs once on the request-owning source scope. Use `afterLoad` or `scope:load` for per-scope work, including `Scope-Target` updates.
 
 ## Accessibility and navigation
 
@@ -110,6 +113,8 @@ Use `autosubmit="300"` on the scope for GET filter forms. POST forms are not aut
 
 Use `keep="same-html"` to preserve expensive custom elements when the server renders the same HTML snapshot. Add `keep-selector="..."` when the default “custom elements with id” rule is too broad or too narrow.
 
+This is an exact keyed-island feature, not a general morphing contract. Stable ids are required, and changed server HTML still replaces the widget.
+
 ## Transitions
 
 Use `transition="fade"` and CSS targeting `.scope-outgoing` / `part="outgoing"`. The outgoing layer is `inert` and `aria-hidden` while it plays out.
@@ -123,6 +128,8 @@ There is no cache in this starter. Call `scope.revalidate()` to reload and mark 
 Only HTML responses are rendered by default (`text/html` or `application/xhtml+xml`). This mirrors the hardening seen in mature fragment frameworks and prevents accidental injection of non-HTML uploads or JSON responses.
 
 HTML error pages, including 5xx responses, are intentionally swapped. Prevent `scope:before-swap` when the application needs to keep its current content instead.
+
+Lifecycle details now separate HTTP success from DOM rendering. A rendered validation response can report `ok: false` and `rendered: true`.
 
 ## URL normalization
 

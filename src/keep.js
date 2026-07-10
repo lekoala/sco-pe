@@ -44,66 +44,115 @@ function syncAttributes(current, next) {
   }
 }
 
+function syncFormState(current, next) {
+  if (current instanceof HTMLInputElement && next instanceof HTMLInputElement) {
+    if (current.type !== "file") current.value = next.value;
+    current.checked = next.checked;
+    return;
+  }
+
+  if (current instanceof HTMLTextAreaElement && next instanceof HTMLTextAreaElement) {
+    current.value = next.value;
+    return;
+  }
+
+  if (current instanceof HTMLOptionElement && next instanceof HTMLOptionElement) {
+    current.selected = next.selected;
+  }
+}
+
+function directChildById(parent, id) {
+  return [...parent.children].find((child) => child.id === id) || null;
+}
+
 function morphNode(scope, current, next) {
-  if (shouldKeep(scope, current, next)) return;
+  // Newly inserted nodes are already the desired server nodes. Re-processing
+  // the same object would recurse into its own children indefinitely.
+  if (current === next) return current;
+
+  if (shouldKeep(scope, current, next)) return current;
 
   if (current.nodeType !== next.nodeType) {
     current.replaceWith(next);
-    return;
+    return next;
   }
 
   if (current.nodeType === Node.TEXT_NODE || current.nodeType === Node.COMMENT_NODE) {
     if (current.nodeValue !== next.nodeValue) current.nodeValue = next.nodeValue;
-    return;
+    return current;
   }
 
-  if (!sameElement(current, next)) {
+  if (!sameElement(current, next) || isCustomElement(current)) {
     current.replaceWith(next);
-    return;
-  }
-
-  if (isCustomElement(current)) {
-    current.replaceWith(next);
-    return;
+    return next;
   }
 
   syncAttributes(current, next);
   morphChildren(scope, current, next);
+  syncFormState(current, next);
+  return current;
+}
+
+function moveBefore(parent, node, reference) {
+  if (typeof parent.moveBefore === "function") parent.moveBefore(node, reference);
+  else parent.insertBefore(node, reference);
+}
+
+function keyedIds(nodes) {
+  return new Set(nodes.filter((node) => node instanceof Element && node.id).map((node) => node.id));
 }
 
 function morphChildren(scope, currentParent, nextParent) {
   const nextNodes = [...nextParent.childNodes];
-  let current = currentParent.firstChild;
+  let cursor = currentParent.firstChild;
 
-  for (const next of nextNodes) {
+  for (let index = 0; index < nextNodes.length; index += 1) {
+    const next = nextNodes[index];
+    let current = cursor;
+
     if (next instanceof Element && next.id) {
-      const children = [...currentParent.childNodes];
-      const matching = children
-        .slice(current ? children.indexOf(current) : children.length)
-        .find((node) => node instanceof Element && node.id === next.id);
+      const matching = directChildById(currentParent, next.id);
       if (matching) {
-        while (current && current !== matching) {
-          const following = current.nextSibling;
-          current.remove();
-          current = following;
+        if (matching !== cursor) {
+          const marker = document.createComment("scope-cursor");
+          currentParent.insertBefore(marker, cursor);
+          const laterIds = keyedIds(nextNodes.slice(index + 1));
+          let skipped = marker.nextSibling;
+          while (skipped && skipped !== matching) {
+            const following = skipped.nextSibling;
+            const neededLater =
+              skipped instanceof Element && skipped.id && laterIds.has(skipped.id);
+            if (!neededLater) skipped.remove();
+            skipped = following;
+          }
+          if (matching !== marker.nextSibling) {
+            moveBefore(currentParent, matching, marker.nextSibling);
+          }
+          marker.remove();
         }
+        current = matching;
+      } else {
+        currentParent.insertBefore(next, cursor);
+        current = next;
       }
-    }
-
-    if (!current) {
+    } else if (cursor instanceof Element && cursor.id) {
+      // Do not consume a keyed node for an unkeyed server node. Insert the
+      // unkeyed node before it so a later keyed node can still be moved/reused.
+      currentParent.insertBefore(next, cursor);
+      current = next;
+    } else if (!current) {
       currentParent.appendChild(next);
-      continue;
+      current = next;
     }
 
-    const following = current.nextSibling;
-    morphNode(scope, current, next);
-    current = following;
+    const rendered = morphNode(scope, current, next);
+    cursor = rendered.nextSibling;
   }
 
-  while (current) {
-    const following = current.nextSibling;
-    current.remove();
-    current = following;
+  while (cursor) {
+    const following = cursor.nextSibling;
+    cursor.remove();
+    cursor = following;
   }
 }
 
