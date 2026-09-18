@@ -716,9 +716,11 @@ export default class Scope extends HTMLElement {
         throwIfAborted(context.signal);
         await assets.loadRegisteredComponents(incoming);
         const prevHeight = this.clientHeight;
-        this.style.minHeight = prevHeight + "px";
+        this.style.minHeight = `${prevHeight}px`;
         target.replaceWith(incoming);
-        setTimeout(() => { this.style.minHeight = ""; }, 0);
+        setTimeout(() => {
+          this.style.minHeight = "";
+        }, 0);
         const detail = {
           ok: response.ok,
           rendered: true,
@@ -747,9 +749,11 @@ export default class Scope extends HTMLElement {
     throwIfAborted(context.signal);
     if (replacement.scope) copyScopeAttributes(this, replacement.scope);
     const prevHeight = this.clientHeight;
-    this.style.minHeight = prevHeight + "px";
+    this.style.minHeight = `${prevHeight}px`;
     replaceChildren(this, fragment, swapKeptChildren);
-    setTimeout(() => { this.style.minHeight = ""; }, 0);
+    setTimeout(() => {
+      this.style.minHeight = "";
+    }, 0);
     throwIfAborted(context.signal);
     rememberServerSnapshots(this, serverSnapshots);
     rememberKeptElements(this);

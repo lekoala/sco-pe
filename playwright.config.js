@@ -8,6 +8,7 @@ const chromiumUse = {
 
 export default defineConfig({
   testDir: "./tests",
+  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   webServer: {
     command: "node tests/fixtures/server.mjs",
     url: "http://127.0.0.1:4173",

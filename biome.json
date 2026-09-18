@@ -5,6 +5,7 @@
       "sco-pe.js",
       "playwright.config.js",
       "src/**",
+      "scripts/**",
       "tests/**",
       "!thirdparty",
       "!**/thirdparty"

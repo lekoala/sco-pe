@@ -3,7 +3,7 @@
 Run the fixture server from the repository root:
 
 ```sh
-npm run serve
+bun run serve
 ```
 
 Then open [the demo index](http://127.0.0.1:4173/static/index.html).

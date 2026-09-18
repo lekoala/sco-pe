@@ -38,14 +38,10 @@ var DEFAULT_CONFIG = {
   renderableResponse: defaultRenderableResponse,
   confirmHandler: (message) => Promise.resolve(window.confirm(message)),
   fetch: (...args) => fetch(...args),
-  beforeLoad: () => {
-  },
-  afterLoad: () => {
-  },
-  onLoad: () => {
-  },
-  onError: () => {
-  }
+  beforeLoad: () => {},
+  afterLoad: () => {},
+  onLoad: () => {},
+  onError: () => {}
 };
 var config = { ...DEFAULT_CONFIG, headers: { ...DEFAULT_HEADERS } };
 function getConfig() {
@@ -107,15 +103,18 @@ function fragmentToHTML(fragment) {
   return div.innerHTML;
 }
 function isNaturallyFocusable(el) {
-  if (!(el instanceof HTMLElement) || el.hidden || el.hasAttribute("inert")) return false;
-  if (el.hasAttribute("tabindex")) return true;
+  if (!(el instanceof HTMLElement) || el.hidden || el.hasAttribute("inert"))
+    return false;
+  if (el.hasAttribute("tabindex"))
+    return true;
   if (el.matches("button, input, select, textarea")) {
     return !el.disabled && !el.matches('input[type="hidden"]');
   }
   return el.matches("a[href], area[href], iframe, object, embed, summary, [contenteditable]");
 }
 function copyDocumentAttributes(doc) {
-  if (!(doc instanceof Document)) return;
+  if (!(doc instanceof Document))
+    return;
   for (const attr of ["class", "dir", "lang"]) {
     const value = doc.documentElement.getAttribute(attr);
     if (value === null) {
@@ -132,7 +131,8 @@ function copyDocumentAttributes(doc) {
   }
 }
 function copyBodyAttributes(body) {
-  if (!body) return;
+  if (!body)
+    return;
   for (const attr of ["class", "style"]) {
     const value = body.getAttribute(attr);
     if (value === null) {
@@ -142,9 +142,9 @@ function copyBodyAttributes(body) {
     }
   }
 }
-var STATE_CLASSES = /* @__PURE__ */ new Set(["scope-loaded", "is-busy", "is-revalidating", "is-transitioning"]);
-var serverClassTokens = /* @__PURE__ */ new WeakMap();
-var SYNCED_SCOPE_ATTRIBUTES = /* @__PURE__ */ new Set([
+var STATE_CLASSES = new Set(["scope-loaded", "is-busy", "is-revalidating", "is-transitioning"]);
+var serverClassTokens = new WeakMap;
+var SYNCED_SCOPE_ATTRIBUTES = new Set([
   "class",
   "role",
   "title",
@@ -155,37 +155,39 @@ var SYNCED_SCOPE_ATTRIBUTES = /* @__PURE__ */ new Set([
   "aria-atomic"
 ]);
 function mergeClassAttribute(currentScope, value) {
-  const previousServer = serverClassTokens.get(currentScope) || /* @__PURE__ */ new Set();
-  const client = new Set(
-    [...currentScope.classList].filter(
-      (token) => !STATE_CLASSES.has(token) && !previousServer.has(token)
-    )
-  );
-  const nextServer = new Set(
-    String(value || "").split(/\s+/).filter(Boolean)
-  );
-  const next = /* @__PURE__ */ new Set([...client, ...nextServer]);
+  const previousServer = serverClassTokens.get(currentScope) || new Set;
+  const client = new Set([...currentScope.classList].filter((token) => !STATE_CLASSES.has(token) && !previousServer.has(token)));
+  const nextServer = new Set(String(value || "").split(/\s+/).filter(Boolean));
+  const next = new Set([...client, ...nextServer]);
   for (const token of currentScope.classList) {
-    if (STATE_CLASSES.has(token)) next.add(token);
+    if (STATE_CLASSES.has(token))
+      next.add(token);
   }
   serverClassTokens.set(currentScope, nextServer);
   currentScope.setAttribute("class", [...next].join(" "));
 }
 function copyScopeAttributes(currentScope, nextScope) {
-  if (!nextScope) return;
+  if (!nextScope)
+    return;
   for (const attr of nextScope.attributes) {
-    if (!SYNCED_SCOPE_ATTRIBUTES.has(attr.name)) continue;
-    if (attr.name === "class") mergeClassAttribute(currentScope, attr.value);
-    else currentScope.setAttribute(attr.name, attr.value);
+    if (!SYNCED_SCOPE_ATTRIBUTES.has(attr.name))
+      continue;
+    if (attr.name === "class")
+      mergeClassAttribute(currentScope, attr.value);
+    else
+      currentScope.setAttribute(attr.name, attr.value);
   }
-  if (!nextScope.hasAttribute("class")) mergeClassAttribute(currentScope, "");
+  if (!nextScope.hasAttribute("class"))
+    mergeClassAttribute(currentScope, "");
 }
 
 // src/a11y.js
-var liveRegionFrames = /* @__PURE__ */ new WeakMap();
+var liveRegionFrames = new WeakMap;
 function resolveTarget(selectorOrElement, fallbackSelector) {
-  if (selectorOrElement instanceof Element) return selectorOrElement;
-  if (selectorOrElement) return document.querySelector(selectorOrElement);
+  if (selectorOrElement instanceof Element)
+    return selectorOrElement;
+  if (selectorOrElement)
+    return document.querySelector(selectorOrElement);
   return fallbackSelector ? document.querySelector(fallbackSelector) : null;
 }
 function readMessage(root, selector) {
@@ -194,7 +196,8 @@ function readMessage(root, selector) {
   return text || null;
 }
 function updateLiveRegion(target, message) {
-  if (!target) return;
+  if (!target)
+    return;
   const pending = liveRegionFrames.get(target);
   if (pending) {
     cancelAnimationFrame(pending);
@@ -221,9 +224,10 @@ function setRevalidating(scope, revalidating) {
   scope.toggleAttribute("revalidating", revalidating);
 }
 function announce(scope, detail = {}) {
-  const config2 = getConfig();
-  const mode = scope.getAttribute("announce") || config2.announce || "auto";
-  if (mode === "none") return;
+  const config = getConfig();
+  const mode = scope.getAttribute("announce") || config.announce || "auto";
+  if (mode === "none")
+    return;
   const headerStatus = detail.statusMessage?.trim?.() || null;
   const headerAlert = detail.alertMessage?.trim?.() || null;
   const localStatus = headerStatus ? null : readMessage(scope, "[role='status']");
@@ -232,26 +236,24 @@ function announce(scope, detail = {}) {
   const alertMessage = headerAlert || localAlert;
   if (statusMessage && mode !== "alert") {
     if (headerStatus) {
-      updateLiveRegion(resolveTarget(config2.statusTarget, "#scope-status"), statusMessage);
+      updateLiveRegion(resolveTarget(config.statusTarget, "#scope-status"), statusMessage);
     }
-    scope.dispatchEvent(
-      new CustomEvent("scope:status", { bubbles: true, detail: { message: statusMessage } })
-    );
+    scope.dispatchEvent(new CustomEvent("scope:status", { bubbles: true, detail: { message: statusMessage } }));
   }
   if (alertMessage && mode !== "status") {
     if (headerAlert) {
-      updateLiveRegion(resolveTarget(config2.alertTarget, "#scope-alert"), alertMessage);
+      updateLiveRegion(resolveTarget(config.alertTarget, "#scope-alert"), alertMessage);
     }
-    scope.dispatchEvent(
-      new CustomEvent("scope:alert", { bubbles: true, detail: { message: alertMessage } })
-    );
+    scope.dispatchEvent(new CustomEvent("scope:alert", { bubbles: true, detail: { message: alertMessage } }));
   }
 }
 function focusAfterSwap(scope, detail = {}) {
-  const config2 = getConfig();
-  const mode = detail.focus || scope.getAttribute("focus") || config2.focus || "auto";
-  if (mode === "none" || mode === "preserve" || mode === "keep") return;
-  if (!detail.userInitiated && mode === "auto") return;
+  const config = getConfig();
+  const mode = detail.focus || scope.getAttribute("focus") || config.focus || "auto";
+  if (mode === "none" || mode === "preserve" || mode === "keep")
+    return;
+  if (!detail.userInitiated && mode === "auto")
+    return;
   let target = null;
   if (mode === "first-error" || mode === "auto" && detail.status >= 400) {
     target = scope.querySelector("[role='alert'][tabindex], [role='alert'], [aria-invalid='true']");
@@ -262,7 +264,8 @@ function focusAfterSwap(scope, detail = {}) {
   if (!target && mode !== "first-error") {
     target = scope.querySelector("[autofocus], h1, h2, [role='heading']");
   }
-  if (!target) return;
+  if (!target)
+    return;
   if (!target.hasAttribute("tabindex") && !isNaturallyFocusable(target)) {
     target.setAttribute("tabindex", "-1");
   }
@@ -293,9 +296,11 @@ function getHash(value) {
   return url.hash ? url.hash.slice(1) : null;
 }
 function isSameDocumentAnchor(value) {
-  if (value == null) return false;
+  if (value == null)
+    return false;
   const raw = String(value);
-  if (!raw.includes("#")) return false;
+  if (!raw.includes("#"))
+    return false;
   const url = expandURL(raw);
   const here = new URL(window.location.href);
   url.hash = "";
@@ -308,11 +313,13 @@ function stripHash(value) {
   return url.href.replace(/\/$/, "");
 }
 function splitHeader(value) {
-  if (!value) return [];
+  if (!value)
+    return [];
   return value.split(",").map((part) => part.trim()).filter(Boolean);
 }
 function decodeHeader(value) {
-  if (!value) return value;
+  if (!value)
+    return value;
   try {
     return decodeURIComponent(value.replace(/\+/g, " "));
   } catch {
@@ -321,11 +328,11 @@ function decodeHeader(value) {
 }
 
 // src/assets.js
-var modulePromises = /* @__PURE__ */ new Map();
-var stylePromises = /* @__PURE__ */ new Map();
+var modulePromises = new Map;
+var stylePromises = new Map;
 function assertAllowedAsset(url) {
-  const config2 = getConfig();
-  if (!config2.allowExternalAssets && !isSameOrigin(url)) {
+  const config = getConfig();
+  if (!config.allowExternalAssets && !isSameOrigin(url)) {
     throw new Error(`External scope asset blocked: ${url}`);
   }
 }
@@ -339,7 +346,8 @@ function retryable(map, key, load) {
   }
   return map.get(key);
 }
-var AssetLoader = class {
+
+class AssetLoader {
   async loadStyles(hrefs = []) {
     await Promise.all(hrefs.map((href) => this.loadStyle(href)));
   }
@@ -350,10 +358,9 @@ var AssetLoader = class {
     const url = expandURL(href).href;
     assertAllowedAsset(url);
     return retryable(stylePromises, url, () => {
-      const existing = [...document.querySelectorAll('link[rel="stylesheet"]')].find(
-        (link2) => link2.href === url
-      );
-      if (existing?.sheet) return existing;
+      const existing = [...document.querySelectorAll('link[rel="stylesheet"]')].find((link) => link.href === url);
+      if (existing?.sheet)
+        return existing;
       log(`Loading style ${url}`);
       const link = existing || document.createElement("link");
       if (!existing) {
@@ -363,11 +370,7 @@ var AssetLoader = class {
       }
       return new Promise((resolve, reject) => {
         link.addEventListener("load", () => resolve(link), { once: true });
-        link.addEventListener(
-          "error",
-          () => reject(new Error(`Could not load scope style: ${url}`)),
-          { once: true }
-        );
+        link.addEventListener("error", () => reject(new Error(`Could not load scope style: ${url}`)), { once: true });
       });
     });
   }
@@ -376,40 +379,35 @@ var AssetLoader = class {
     assertAllowedAsset(url);
     return retryable(modulePromises, url, () => {
       log(`Loading module ${url}`);
-      return import(
-        /* @vite-ignore */
-        url
-      );
+      return import(url);
     });
   }
   async loadRegisteredComponents(root) {
-    const config2 = getConfig();
-    const tags = /* @__PURE__ */ new Set();
+    const config = getConfig();
+    const tags = new Set;
     root.querySelectorAll?.("*").forEach((el) => {
       const tag = el.localName;
       if (tag?.includes("-") && tag !== "sco-pe" && !customElements.get(tag)) {
         tags.add(tag);
       }
     });
-    await Promise.all(
-      [...tags].map(async (tag) => {
-        const src = config2.components?.[tag];
-        if (!src) {
-          log(`No registered module for <${tag}>`);
-          return;
-        }
-        await this.loadModule(src);
-        if (!customElements.get(tag)) {
-          throw new Error(`Registered module did not define <${tag}>: ${src}`);
-        }
-      })
-    );
+    await Promise.all([...tags].map(async (tag) => {
+      const src = config.components?.[tag];
+      if (!src) {
+        log(`No registered module for <${tag}>`);
+        return;
+      }
+      await this.loadModule(src);
+      if (!customElements.get(tag)) {
+        throw new Error(`Registered module did not define <${tag}>: ${src}`);
+      }
+    }));
   }
-};
-var assets = new AssetLoader();
+}
+var assets = new AssetLoader;
 
 // src/keep.js
-var snapshots = /* @__PURE__ */ new WeakMap();
+var snapshots = new WeakMap;
 function isCustomElement(el) {
   return el?.localName?.includes("-") && el.localName !== "sco-pe";
 }
@@ -421,34 +419,45 @@ function selectorMatches(scope, el) {
   return selector ? el.matches?.(selector) : defaultCandidate(el);
 }
 function candidates(root, selector) {
-  if (selector) return [...root.querySelectorAll?.(selector) || []];
+  if (selector)
+    return [...root.querySelectorAll?.(selector) || []];
   return [...root.querySelectorAll?.("[id]") || []].filter(defaultCandidate);
 }
 function shouldKeep(scope, current, next) {
-  if (!(current instanceof Element) || !(next instanceof Element)) return false;
-  if ((scope.getAttribute("keep") || "none") !== "same-html") return false;
-  if (!current.id || current.id !== next.id) return false;
-  if (!selectorMatches(scope, current)) return false;
+  if (!(current instanceof Element) || !(next instanceof Element))
+    return false;
+  if ((scope.getAttribute("keep") || "none") !== "same-html")
+    return false;
+  if (!current.id || current.id !== next.id)
+    return false;
+  if (!selectorMatches(scope, current))
+    return false;
   const currentHTML = snapshots.get(current) || current.outerHTML;
   return currentHTML === next.outerHTML;
 }
 function sameElement(current, next) {
-  if (!(current instanceof Element) || !(next instanceof Element)) return false;
-  if (current.localName !== next.localName) return false;
-  if (current.id || next.id) return current.id === next.id;
+  if (!(current instanceof Element) || !(next instanceof Element))
+    return false;
+  if (current.localName !== next.localName)
+    return false;
+  if (current.id || next.id)
+    return current.id === next.id;
   return true;
 }
 function syncAttributes(current, next) {
   for (const attr of [...current.attributes]) {
-    if (!next.hasAttribute(attr.name)) current.removeAttribute(attr.name);
+    if (!next.hasAttribute(attr.name))
+      current.removeAttribute(attr.name);
   }
   for (const attr of [...next.attributes]) {
-    if (current.getAttribute(attr.name) !== attr.value) current.setAttribute(attr.name, attr.value);
+    if (current.getAttribute(attr.name) !== attr.value)
+      current.setAttribute(attr.name, attr.value);
   }
 }
 function syncFormState(current, next) {
   if (current instanceof HTMLInputElement && next instanceof HTMLInputElement) {
-    if (current.type !== "file") current.value = next.value;
+    if (current.type !== "file")
+      current.value = next.value;
     current.checked = next.checked;
     return;
   }
@@ -464,14 +473,17 @@ function directChildById(parent, id) {
   return [...parent.children].find((child) => child.id === id) || null;
 }
 function morphNode(scope, current, next) {
-  if (current === next) return current;
-  if (shouldKeep(scope, current, next)) return current;
+  if (current === next)
+    return current;
+  if (shouldKeep(scope, current, next))
+    return current;
   if (current.nodeType !== next.nodeType) {
     current.replaceWith(next);
     return next;
   }
   if (current.nodeType === Node.TEXT_NODE || current.nodeType === Node.COMMENT_NODE) {
-    if (current.nodeValue !== next.nodeValue) current.nodeValue = next.nodeValue;
+    if (current.nodeValue !== next.nodeValue)
+      current.nodeValue = next.nodeValue;
     return current;
   }
   if (!sameElement(current, next) || isCustomElement(current)) {
@@ -484,8 +496,10 @@ function morphNode(scope, current, next) {
   return current;
 }
 function moveBefore(parent, node, reference) {
-  if (typeof parent.moveBefore === "function") parent.moveBefore(node, reference);
-  else parent.insertBefore(node, reference);
+  if (typeof parent.moveBefore === "function")
+    parent.moveBefore(node, reference);
+  else
+    parent.insertBefore(node, reference);
 }
 function keyedIds(nodes) {
   return new Set(nodes.filter((node) => node instanceof Element && node.id).map((node) => node.id));
@@ -493,7 +507,7 @@ function keyedIds(nodes) {
 function morphChildren(scope, currentParent, nextParent) {
   const nextNodes = [...nextParent.childNodes];
   let cursor = currentParent.firstChild;
-  for (let index = 0; index < nextNodes.length; index += 1) {
+  for (let index = 0;index < nextNodes.length; index += 1) {
     const next = nextNodes[index];
     let current = cursor;
     if (next instanceof Element && next.id) {
@@ -507,7 +521,8 @@ function morphChildren(scope, currentParent, nextParent) {
           while (skipped && skipped !== matching) {
             const following = skipped.nextSibling;
             const neededLater = skipped instanceof Element && skipped.id && laterIds.has(skipped.id);
-            if (!neededLater) skipped.remove();
+            if (!neededLater)
+              skipped.remove();
             skipped = following;
           }
           if (matching !== marker.nextSibling) {
@@ -538,11 +553,14 @@ function morphChildren(scope, currentParent, nextParent) {
 }
 function rememberKeptElements(scope) {
   const mode = scope.getAttribute("keep") || "none";
-  if (mode === "none") return;
+  if (mode === "none")
+    return;
   const selector = scope.getAttribute("keep-selector");
   for (const el of candidates(scope, selector)) {
-    if (!el.id) continue;
-    if (!snapshots.has(el)) snapshots.set(el, el.outerHTML);
+    if (!el.id)
+      continue;
+    if (!snapshots.has(el))
+      snapshots.set(el, el.outerHTML);
   }
 }
 function snapshotKeptElements(scope, root) {
@@ -552,7 +570,8 @@ function snapshotKeptElements(scope, root) {
 function rememberServerSnapshots(scope, snapshotsFromServer) {
   for (const { id, html } of snapshotsFromServer) {
     const el = scope.querySelector(`#${CSS.escape(id)}`);
-    if (el) snapshots.set(el, html);
+    if (el)
+      snapshots.set(el, html);
   }
 }
 function createReplacementFragment(_scope, html) {
@@ -570,40 +589,49 @@ function swapKeptChildren(scope, fragment) {
 
 // src/scroll.js
 function isScrollable(el) {
-  if (!(el instanceof Element)) return false;
+  if (!(el instanceof Element))
+    return false;
   return el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth;
 }
 function keyFor(el) {
-  if (el === document.scrollingElement) return "document";
-  if (el.id) return `#${CSS.escape(el.id)}`;
+  if (el === document.scrollingElement)
+    return "document";
+  if (el.id)
+    return `#${CSS.escape(el.id)}`;
   return null;
 }
 function queryByKey(key) {
-  if (key === "document") return document.scrollingElement;
+  if (key === "document")
+    return document.scrollingElement;
   return document.querySelector(key);
 }
 function saveScrollPositions(scope) {
   const positions = [];
   const descendants = scope.querySelectorAll?.("[id]") || [];
-  const candidates2 = [document.scrollingElement, scope, ...descendants];
-  candidates2.forEach((el) => {
-    if (!el || !isScrollable(el)) return;
+  const candidates = [document.scrollingElement, scope, ...descendants];
+  candidates.forEach((el) => {
+    if (!el || !isScrollable(el))
+      return;
     const key = keyFor(el);
-    if (!key) return;
+    if (!key)
+      return;
     positions.push({ key, top: el.scrollTop, left: el.scrollLeft });
   });
   return () => {
     positions.forEach(({ key, top, left }) => {
       const el = queryByKey(key);
-      if (el) el.scrollTo?.({ top, left, behavior: "auto" });
+      if (el)
+        el.scrollTo?.({ top, left, behavior: "auto" });
     });
   };
 }
 function scrollScope(scope, mode, url = window.location.href) {
-  if (mode === "none" || mode === "keep") return;
+  if (mode === "none" || mode === "keep")
+    return;
   if (mode === "hash") {
     const focused = focusHashTarget(scope, url);
-    if (focused) return;
+    if (focused)
+      return;
   }
   if (mode === "top") {
     if (scope.scrollHeight > scope.clientHeight) {
@@ -615,9 +643,11 @@ function scrollScope(scope, mode, url = window.location.href) {
 }
 function focusHashTarget(root = document, url = window.location.href) {
   const hash = getHash(url);
-  if (!hash) return false;
+  if (!hash)
+    return false;
   const target = root.querySelector?.(`#${CSS.escape(hash)}`) || document.getElementById(hash);
-  if (!target) return false;
+  if (!target)
+    return false;
   if (!target.hasAttribute("tabindex") && !isNaturallyFocusable(target)) {
     target.setAttribute("tabindex", "-1");
   }
@@ -627,13 +657,14 @@ function focusHashTarget(root = document, url = window.location.href) {
 }
 
 // src/transition.js
-var activeTransitions = /* @__PURE__ */ new WeakMap();
+var activeTransitions = new WeakMap;
 function prefersReducedMotion() {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
 }
 function timeoutFor(scope) {
   const local = Number(scope.getAttribute("transition-timeout"));
-  if (Number.isFinite(local) && local >= 0) return local;
+  if (Number.isFinite(local) && local >= 0)
+    return local;
   return getConfig().transitionTimeout;
 }
 function transitionMode(scope) {
@@ -651,8 +682,10 @@ function runTransition(scope, outgoing, mode, timeout, restorePosition) {
       cancel: () => finish(true)
     };
     const finish = (canceled = false, event = null) => {
-      if (event && event.target !== outgoing) return;
-      if (done) return;
+      if (event && event.target !== outgoing)
+        return;
+      if (done)
+        return;
       done = true;
       outgoing.removeEventListener("transitionend", onEnd);
       outgoing.removeEventListener("animationend", onEnd);
@@ -663,12 +696,10 @@ function runTransition(scope, outgoing, mode, timeout, restorePosition) {
         scope.classList.remove("is-transitioning");
         scope.removeAttribute("transitioning");
         restorePosition();
-        scope.dispatchEvent(
-          new CustomEvent("scope:transition-end", {
-            bubbles: true,
-            detail: { mode, canceled }
-          })
-        );
+        scope.dispatchEvent(new CustomEvent("scope:transition-end", {
+          bubbles: true,
+          detail: { mode, canceled }
+        }));
       }
       resolve();
     };
@@ -692,7 +723,8 @@ function outgoingHTML(html) {
   customElements2.forEach((el) => {
     const snapshot = document.createElement("div");
     for (const attr of [...el.attributes]) {
-      if (attr.name !== "id" && attr.name !== "is") snapshot.setAttribute(attr.name, attr.value);
+      if (attr.name !== "id" && attr.name !== "is")
+        snapshot.setAttribute(attr.name, attr.value);
     }
     snapshot.classList.add("scope-transition-element");
     snapshot.append(...el.childNodes);
@@ -713,8 +745,10 @@ function replaceChildren(scope, fragment, swap = (target, next) => target.replac
   const oldPosition = scope.style.position;
   const shouldSetPosition = getComputedStyle(scope).position === "static";
   swap(scope, fragment);
-  if (!oldHTML.trim()) return;
-  if (shouldSetPosition) scope.style.position = "relative";
+  if (!oldHTML.trim())
+    return;
+  if (shouldSetPosition)
+    scope.style.position = "relative";
   const outgoing = document.createElement("div");
   outgoing.className = `scope-outgoing scope-outgoing-${mode}`;
   outgoing.part = "outgoing";
@@ -730,21 +764,21 @@ function replaceChildren(scope, fragment, swap = (target, next) => target.replac
   scope.classList.add("is-transitioning");
   scope.setAttribute("transitioning", "");
   scope.appendChild(outgoing);
-  scope.dispatchEvent(
-    new CustomEvent("scope:transition-start", {
-      bubbles: true,
-      detail: { mode, outgoing }
-    })
-  );
-  void runTransition(scope, outgoing, mode, timeoutFor(scope), () => {
-    if (shouldSetPosition) scope.style.position = oldPosition;
+  scope.dispatchEvent(new CustomEvent("scope:transition-start", {
+    bubbles: true,
+    detail: { mode, outgoing }
+  }));
+  runTransition(scope, outgoing, mode, timeoutFor(scope), () => {
+    if (shouldSetPosition)
+      scope.style.position = oldPosition;
   });
 }
 
 // src/Scope.js
 var FORM_FIELD_SELECTOR = "input, select, textarea";
 function parseBool(value, fallback = false) {
-  if (value == null || value === "") return fallback;
+  if (value == null || value === "")
+    return fallback;
   return ["1", "true", true, 1, "yes"].includes(value);
 }
 function mergeRequestHeaders(base, override) {
@@ -755,11 +789,13 @@ function mergeRequestHeaders(base, override) {
   return headers;
 }
 function combineSignals(controller, externalSignal) {
-  if (!externalSignal) return controller.signal;
+  if (!externalSignal)
+    return controller.signal;
   if (typeof AbortSignal.any === "function") {
     return AbortSignal.any([controller.signal, externalSignal]);
   }
-  if (externalSignal.aborted) controller.abort(externalSignal.reason);
+  if (externalSignal.aborted)
+    controller.abort(externalSignal.reason);
   else {
     externalSignal.addEventListener("abort", () => controller.abort(externalSignal.reason), {
       once: true
@@ -768,8 +804,10 @@ function combineSignals(controller, externalSignal) {
   return controller.signal;
 }
 function throwIfAborted(signal) {
-  if (!signal?.aborted) return;
-  if (signal.reason instanceof Error) throw signal.reason;
+  if (!signal?.aborted)
+    return;
+  if (signal.reason instanceof Error)
+    throw signal.reason;
   throw new DOMException("The operation was aborted", "AbortError");
 }
 function numberAttribute(el, name, fallback) {
@@ -777,11 +815,13 @@ function numberAttribute(el, name, fallback) {
   return Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 function scopeOption(name, scope, fallback = null) {
-  if (scope?.hasAttribute?.(name)) return scope.getAttribute(name);
+  if (scope?.hasAttribute?.(name))
+    return scope.getAttribute(name);
   return fallback;
 }
 function getAction(formOrLink, submitter = null) {
-  if (submitter?.hasAttribute?.("formaction")) return submitter.getAttribute("formaction");
+  if (submitter?.hasAttribute?.("formaction"))
+    return submitter.getAttribute("formaction");
   if (formOrLink instanceof HTMLFormElement) {
     return formOrLink.getAttribute("action") || window.location.href;
   }
@@ -827,14 +867,15 @@ function formDataFor(form, submitter) {
   return new FormData(form);
 }
 function paramsFromFormData(formData) {
-  const params = new URLSearchParams();
+  const params = new URLSearchParams;
   for (const [name, value] of formData) {
     params.append(name, value instanceof File ? value.name : value);
   }
   return params;
 }
 function plainTextFromFormData(formData) {
-  return [...formData].map(([name, value]) => `${name}=${value instanceof File ? value.name : value}`).join("\r\n");
+  return [...formData].map(([name, value]) => `${name}=${value instanceof File ? value.name : value}`).join(`\r
+`);
 }
 function buildRequest(trigger, event) {
   const submitter = submitterFrom(event);
@@ -863,7 +904,8 @@ function buildRequest(trigger, event) {
   return { url: url.href, method, body, headers, submitter };
 }
 function sameHistoryURL(a, b) {
-  if (!a || !b) return false;
+  if (!a || !b)
+    return false;
   return stripHash(a) === stripHash(b);
 }
 function eventDetail(extra = {}) {
@@ -876,15 +918,19 @@ function isFieldEvent(event) {
   return event.type === "input" || event.type === "change";
 }
 function isSubmittableField(el) {
-  if (!el?.matches?.(FORM_FIELD_SELECTOR)) return false;
-  if (el.disabled || !el.name) return false;
+  if (!el?.matches?.(FORM_FIELD_SELECTOR))
+    return false;
+  if (el.disabled || !el.name)
+    return false;
   return !["button", "submit", "reset", "file"].includes(el.type);
 }
 function confirmationMessage(trigger, submitter = null) {
-  if (submitter?.hasAttribute?.("data-confirm")) return submitter.getAttribute("data-confirm");
+  if (submitter?.hasAttribute?.("data-confirm"))
+    return submitter.getAttribute("data-confirm");
   return trigger.getAttribute?.("data-confirm") ?? null;
 }
-var Scope = class _Scope extends HTMLElement {
+
+class Scope extends HTMLElement {
   #initialized = false;
   #abortController = null;
   #activeRequestId = null;
@@ -903,8 +949,10 @@ var Scope = class _Scope extends HTMLElement {
     return this.getAttribute("src");
   }
   set src(value) {
-    if (value == null) this.removeAttribute("src");
-    else this.setAttribute("src", value);
+    if (value == null)
+      this.removeAttribute("src");
+    else
+      this.setAttribute("src", value);
   }
   connectedCallback() {
     this.addEventListener("click", this);
@@ -916,7 +964,8 @@ var Scope = class _Scope extends HTMLElement {
       return;
     }
     queueMicrotask(async () => {
-      if (!this.isConnected || this.#initialized) return;
+      if (!this.isConnected || this.#initialized)
+        return;
       log(`Scope init ${this.id || "(no id)"}`);
       try {
         await this.loadContent({ checkExisting: true, userInitiated: false });
@@ -948,25 +997,32 @@ var Scope = class _Scope extends HTMLElement {
     this.removeEventListener("change", this);
   }
   attributeChangedCallback(name, oldValue, newValue) {
-    if (!this.#initialized || oldValue === newValue) return;
+    if (!this.#initialized || oldValue === newValue)
+      return;
     if (name === "src") {
       this.loadContent({ checkExisting: false, userInitiated: false });
     }
   }
   handleEvent(event) {
-    if (event.target.closest?.("sco-pe") !== this) return;
-    if (this.hasAttribute("disabled") && this.getAttribute("disabled") !== "false") return;
-    if (isModifiedClick(event)) return;
-    if (isFieldEvent(event) && this.handleAutosubmit(event)) return;
+    if (event.target.closest?.("sco-pe") !== this)
+      return;
+    if (this.hasAttribute("disabled") && this.getAttribute("disabled") !== "false")
+      return;
+    if (isModifiedClick(event))
+      return;
+    if (isFieldEvent(event) && this.handleAutosubmit(event))
+      return;
     const trigger = event.type === "submit" ? event.target : findClickTrigger(event);
-    if (!trigger) return;
+    if (!trigger)
+      return;
     const submitter = submitterFrom(event);
     const action = getAction(trigger, submitter);
     if (event.type === "click" && isSameDocumentAnchor(action)) {
       setTimeout(() => focusHashTarget(document, action), 0);
       return;
     }
-    if (shouldIgnore(trigger, submitter)) return;
+    if (shouldIgnore(trigger, submitter))
+      return;
     event.preventDefault();
     this.handleNavigation(trigger, event).catch((error) => {
       this.dispatchEvent(new CustomEvent("scope:error", eventDetail({ error })));
@@ -974,18 +1030,25 @@ var Scope = class _Scope extends HTMLElement {
   }
   async handleNavigation(trigger, event) {
     const message = confirmationMessage(trigger, submitterFrom(event));
-    if (message !== null && !await getConfig().confirmHandler(message)) return;
+    if (message !== null && !await getConfig().confirmHandler(message))
+      return;
     await this.load(trigger, event, { userInitiated: true });
   }
   handleAutosubmit(event) {
-    if (!this.hasAttribute("autosubmit")) return false;
-    if (event.isComposing) return false;
+    if (!this.hasAttribute("autosubmit"))
+      return false;
+    if (event.isComposing)
+      return false;
     const field = event.target;
-    if (!isSubmittableField(field)) return false;
+    if (!isSubmittableField(field))
+      return false;
     const form = field.form || field.closest?.("form");
-    if (!form || !this.contains(form)) return false;
-    if (getMethod(form) !== "GET") return false;
-    if (shouldIgnore(form)) return false;
+    if (!form || !this.contains(form))
+      return false;
+    if (getMethod(form) !== "GET")
+      return false;
+    if (shouldIgnore(form))
+      return false;
     const delay = numberAttribute(this, "autosubmit", getConfig().autosubmitDelay);
     clearTimeout(this.#autosubmitTimer);
     this.#autosubmitTimer = setTimeout(() => {
@@ -1010,16 +1073,12 @@ var Scope = class _Scope extends HTMLElement {
     const state = history.state?.scope;
     const currentHistoryURL = state?.id === this.id ? state.url : null;
     const url = options.url || currentHistoryURL || this.src || window.location.href;
-    return this.loadURL(
-      url,
-      { method: "GET" },
-      {
-        userInitiated: Boolean(options.userInitiated),
-        revalidating: Boolean(options.revalidate || options.revalidating),
-        scroll: options.scroll,
-        focus: options.focus
-      }
-    );
+    return this.loadURL(url, { method: "GET" }, {
+      userInitiated: Boolean(options.userInitiated),
+      revalidating: Boolean(options.revalidate || options.revalidating),
+      scroll: options.scroll,
+      focus: options.focus
+    });
   }
   revalidate(options = {}) {
     return this.reload({ ...options, revalidate: true });
@@ -1033,27 +1092,25 @@ var Scope = class _Scope extends HTMLElement {
     const target = scopeOption("target", this);
     const useHistory = this.shouldUseHistory() && isSafeMethod(method) && (isLink || trigger instanceof HTMLFormElement);
     const submitterWasDisabled = submitter?.disabled;
-    if (submitter) submitter.disabled = true;
+    if (submitter)
+      submitter.disabled = true;
     try {
-      const result = await this.loadURL(
-        url,
-        { method, body, headers },
-        { ...context, trigger, select, scroll, focus, target }
-      );
+      const result = await this.loadURL(url, { method, body, headers }, { ...context, trigger, select, scroll, focus, target });
       if (useHistory && result.ok && !result.aborted) {
         this.updateHistory(result.url || url, select, { replace: Boolean(context.autosubmit) });
       }
       if (result.ok && !result.aborted) {
-        const activeURL = useHistory ? window.location.href : isLink ? result.url || url : void 0;
+        const activeURL = useHistory ? window.location.href : isLink ? result.url || url : undefined;
         this.markActiveLinks(activeURL);
         const targetScope = result.target ? document.getElementById(result.target) : null;
-        if (targetScope instanceof _Scope && targetScope !== this) {
+        if (targetScope instanceof Scope && targetScope !== this) {
           targetScope.markActiveLinks(activeURL);
         }
       }
       return result;
     } finally {
-      if (submitter) submitter.disabled = Boolean(submitterWasDisabled);
+      if (submitter)
+        submitter.disabled = Boolean(submitterWasDisabled);
     }
   }
   async loadContent({ checkExisting = false, userInitiated = false } = {}) {
@@ -1074,14 +1131,14 @@ var Scope = class _Scope extends HTMLElement {
     await assets.loadRegisteredComponents(this);
   }
   async loadURL(url, fetchOptions = {}, context = {}) {
-    const config2 = getConfig();
+    const config = getConfig();
     const absoluteUrl = expandURL(url).href;
-    const controller = new AbortController();
+    const controller = new AbortController;
     const requestId = ++this.#requestSequence;
     const options = {
       method: "GET",
       ...fetchOptions,
-      headers: mergeRequestHeaders(config2.requestHeaders, fetchOptions.headers),
+      headers: mergeRequestHeaders(config.requestHeaders, fetchOptions.headers),
       signal: combineSignals(controller, fetchOptions.signal)
     };
     const before = new CustomEvent("scope:before-load", {
@@ -1107,9 +1164,9 @@ var Scope = class _Scope extends HTMLElement {
     let afterLoadStarted = false;
     let responseStatus = 0;
     try {
-      await config2.beforeLoad(this, before.detail);
+      await config.beforeLoad(this, before.detail);
       log(`${options.method || "GET"} ${absoluteUrl}`);
-      const response = await config2.fetch(absoluteUrl, options);
+      const response = await config.fetch(absoluteUrl, options);
       responseStatus = response.status;
       const result = await this.processResponse(response, {
         ...context,
@@ -1136,7 +1193,7 @@ var Scope = class _Scope extends HTMLElement {
       };
       if (!aborted && !stale) {
         this.dispatchEvent(new CustomEvent("scope:error", eventDetail(result)));
-        await config2.onError(this, result);
+        await config.onError(this, result);
       }
       if (!stale && !afterLoadStarted) {
         afterLoadStarted = true;
@@ -1154,7 +1211,7 @@ var Scope = class _Scope extends HTMLElement {
   }
   async processResponse(response, context = {}) {
     throwIfAborted(context.signal);
-    const config2 = getConfig();
+    const config = getConfig();
     const status = response.status;
     const ok = response.ok || status === 304;
     const responseHeaders = this.readHeaders(response);
@@ -1186,17 +1243,14 @@ var Scope = class _Scope extends HTMLElement {
         revalidating: context.revalidating
       };
     }
-    if (headerDetail.title) document.title = headerDetail.title;
+    if (headerDetail.title)
+      document.title = headerDetail.title;
     if (headerDetail.location) {
-      const redirected = await this.loadURL(
-        headerDetail.location,
-        { method: "GET" },
-        {
-          ...context,
-          statusMessage: headerDetail.statusMessage,
-          alertMessage: headerDetail.alertMessage
-        }
-      );
+      const redirected = await this.loadURL(headerDetail.location, { method: "GET" }, {
+        ...context,
+        statusMessage: headerDetail.statusMessage,
+        alertMessage: headerDetail.alertMessage
+      });
       return { ...redirected, redirected: headerDetail.location };
     }
     if (status === 204 || status === 205 || status === 304) {
@@ -1214,11 +1268,9 @@ var Scope = class _Scope extends HTMLElement {
         alertMessage: headerDetail.alertMessage
       };
     }
-    if (!config2.renderableResponse(response)) {
+    if (!config.renderableResponse(response)) {
       announce(this, headerDetail);
-      throw new TypeError(
-        `Refused to render non-HTML response from ${response.url || context.requestUrl}`
-      );
+      throw new TypeError(`Refused to render non-HTML response from ${response.url || context.requestUrl}`);
     }
     await assets.loadStyles(headerDetail.styles);
     await assets.loadScripts(headerDetail.scripts);
@@ -1230,7 +1282,8 @@ var Scope = class _Scope extends HTMLElement {
     const target = headerDetail.target || context.target;
     if (target && target !== "_self" && target !== this.id) {
       const targetScope = document.getElementById(target);
-      if (!(targetScope instanceof _Scope)) throw new Error(`Target scope not found: ${target}`);
+      if (!(targetScope instanceof Scope))
+        throw new Error(`Target scope not found: ${target}`);
       targetScope.abortLoading({ cleanup: false });
       setBusy(targetScope, true);
       setRevalidating(targetScope, Boolean(context.revalidating));
@@ -1279,7 +1332,8 @@ var Scope = class _Scope extends HTMLElement {
     throwIfAborted(context.signal);
     const replacement = this.selectReplacement(parsed, context.select);
     const status = response.status;
-    if (!replacement) throw new Error(`No replacement found for scope ${this.id || "(anonymous)"}`);
+    if (!replacement)
+      throw new Error(`No replacement found for scope ${this.id || "(anonymous)"}`);
     const beforeSwap = new CustomEvent("scope:before-swap", {
       bubbles: true,
       cancelable: true,
@@ -1306,17 +1360,61 @@ var Scope = class _Scope extends HTMLElement {
     const scrollMode = context.scroll || getConfig().scroll;
     const restoreScroll = scrollMode === "keep" ? saveScrollPositions(this) : null;
     const fragment = createReplacementFragment(this, replacement.html);
+    const swapSelector = this.getAttribute("scope-swap");
+    if (swapSelector) {
+      const target = this.querySelector(swapSelector);
+      const incoming = target ? fragment.firstElementChild : null;
+      if (target && incoming) {
+        throwIfAborted(context.signal);
+        await assets.loadRegisteredComponents(incoming);
+        const prevHeight = this.clientHeight;
+        this.style.minHeight = `${prevHeight}px`;
+        target.replaceWith(incoming);
+        setTimeout(() => {
+          this.style.minHeight = "";
+        }, 0);
+        const detail = {
+          ok: response.ok,
+          rendered: true,
+          status,
+          url: response.url || context.requestUrl,
+          userInitiated: context.userInitiated,
+          revalidating: context.revalidating,
+          statusMessage: context.statusMessage,
+          alertMessage: context.alertMessage,
+          focus: context.focus,
+          scroll: context.scroll,
+          source: context.source || this.id || null,
+          target: context.target || this.id || null
+        };
+        this.dispatchEvent(new CustomEvent("scope:after-swap", eventDetail(detail)));
+        focusAfterSwap(this, detail);
+        if (restoreScroll)
+          restoreScroll();
+        else
+          scrollScope(this, scrollMode, detail.url);
+        announce(this, detail);
+        return detail;
+      }
+    }
     const serverSnapshots = snapshotKeptElements(this, fragment);
     await assets.loadRegisteredComponents(fragment);
     throwIfAborted(context.signal);
-    if (replacement.scope) copyScopeAttributes(this, replacement.scope);
+    if (replacement.scope)
+      copyScopeAttributes(this, replacement.scope);
+    const prevHeight = this.clientHeight;
+    this.style.minHeight = `${prevHeight}px`;
     replaceChildren(this, fragment, swapKeptChildren);
+    setTimeout(() => {
+      this.style.minHeight = "";
+    }, 0);
     throwIfAborted(context.signal);
     rememberServerSnapshots(this, serverSnapshots);
     rememberKeptElements(this);
     if (parsed.isFullDocument && parsed.root instanceof Document) {
       const title = parsed.root.querySelector("title")?.textContent?.trim();
-      if (title && !context.title) document.title = title;
+      if (title && !context.title)
+        document.title = title;
       if (getConfig().syncDocumentAttributes) {
         copyDocumentAttributes(parsed.root);
         copyBodyAttributes(parsed.root.body);
@@ -1338,8 +1436,10 @@ var Scope = class _Scope extends HTMLElement {
     };
     this.dispatchEvent(new CustomEvent("scope:after-swap", eventDetail(detail)));
     focusAfterSwap(this, detail);
-    if (restoreScroll) restoreScroll();
-    else scrollScope(this, scrollMode, detail.url);
+    if (restoreScroll)
+      restoreScroll();
+    else
+      scrollScope(this, scrollMode, detail.url);
     announce(this, detail);
     return detail;
   }
@@ -1365,18 +1465,20 @@ var Scope = class _Scope extends HTMLElement {
       if (selected) {
         return {
           scope: selected.localName === "sco-pe" ? selected : null,
-          // Scope-Select extracts the selected element's content, not its wrapper.
           html: selected.innerHTML
         };
       }
     }
     if (this.id) {
       const scope = root.querySelector?.(`sco-pe#${CSS.escape(this.id)}`);
-      if (scope) return { scope, html: scope.innerHTML };
+      if (scope)
+        return { scope, html: scope.innerHTML };
     }
     const firstScope = root.querySelector?.("sco-pe");
-    if (!this.id && firstScope) return { scope: firstScope, html: firstScope.innerHTML };
-    if (this.id && firstScope) return null;
+    if (!this.id && firstScope)
+      return { scope: firstScope, html: firstScope.innerHTML };
+    if (this.id && firstScope)
+      return null;
     if (parsed.isFullDocument && root instanceof Document && root.body) {
       return { scope: null, html: root.body.innerHTML };
     }
@@ -1395,26 +1497,28 @@ var Scope = class _Scope extends HTMLElement {
     }
   }
   shouldUseHistory() {
-    if (!this.id) return false;
-    if (this.hasAttribute("history")) return parseBool(this.getAttribute("history"), true);
+    if (!this.id)
+      return false;
+    if (this.hasAttribute("history"))
+      return parseBool(this.getAttribute("history"), true);
     return true;
   }
   updateHistory(url, select = null, { replace = false } = {}) {
     const state = { scope: { id: this.id, url, select } };
-    if (history.state?.scope && sameHistoryURL(history.state.scope.url, url)) return;
+    if (history.state?.scope && sameHistoryURL(history.state.scope.url, url))
+      return;
     if (!history.state?.scope) {
-      history.replaceState(
-        { scope: { id: this.id, url: window.location.href, select: null } },
-        "",
-        window.location.href
-      );
+      history.replaceState({ scope: { id: this.id, url: window.location.href, select: null } }, "", window.location.href);
     }
-    if (replace) history.replaceState(state, "", url);
-    else history.pushState(state, "", url);
+    if (replace)
+      history.replaceState(state, "", url);
+    else
+      history.pushState(state, "", url);
   }
   clearActiveLinks() {
     this.querySelectorAll(`.${CSS.escape(getConfig().activeClass)}`).forEach((el) => {
-      if (el.closest("sco-pe") !== this) return;
+      if (el.closest("sco-pe") !== this)
+        return;
       el.classList.remove(getConfig().activeClass);
       el.removeAttribute("aria-current");
     });
@@ -1423,23 +1527,28 @@ var Scope = class _Scope extends HTMLElement {
     const current = stripHash(url || window.location.href);
     let matched = false;
     this.querySelectorAll("a[href]").forEach((link) => {
-      if (link.closest("sco-pe") !== this) return;
-      if (isSameDocumentAnchor(link.href)) return;
+      if (link.closest("sco-pe") !== this)
+        return;
+      if (isSameDocumentAnchor(link.href))
+        return;
       const active = stripHash(link.href) === current;
       if (active && !matched) {
         this.clearActiveLinks();
         matched = true;
       }
       link.classList.toggle(getConfig().activeClass, active);
-      if (active) link.setAttribute("aria-current", "page");
-      else link.removeAttribute("aria-current");
+      if (active)
+        link.setAttribute("aria-current", "page");
+      else
+        link.removeAttribute("aria-current");
     });
   }
-};
+}
 window.addEventListener("popstate", (event) => {
   const state = event.state?.scope;
   if (!state?.id || !state.url) {
-    if (window.location.hash && focusHashTarget(document, window.location.href)) return;
+    if (window.location.hash && focusHashTarget(document, window.location.href))
+      return;
     window.location.replace(window.location.href);
     return;
   }
@@ -1463,4 +1572,6 @@ var sco_pe_default = Scope;
 export {
   sco_pe_default as default
 };
+
+//# debugId=D36B967B2B29CFDB64756E2164756E21
 //# sourceMappingURL=sco-pe.js.map

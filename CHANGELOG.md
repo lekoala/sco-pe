@@ -34,7 +34,8 @@
   custom element.
 - Removes the unused fragment asset-template convention; dynamic assets now use
   headers or the component registry.
-- Adds CI, refreshed bundles, and regression tests for the new behaviors.
+- Adds CI (Bun, split verify/browser jobs on the Playwright container), refreshed
+  bundles, and regression tests for the new behaviors.
 
 See [the upgrade notes](docs/upgrade-notes.md) for breaking changes and migration
 guidance.
