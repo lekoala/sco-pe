@@ -1,6 +1,9 @@
 {
-  "name": "sco-pe",
+  "name": "@lekoala/sco-pe",
   "version": "0.2.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "Scoped navigation custom element, progressively enhances links and forms in server-rendered apps",
   "type": "module",
   "main": "sco-pe.js",
