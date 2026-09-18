@@ -24,13 +24,40 @@ function retryable(map, key, load) {
   return map.get(key);
 }
 
+function abortedReason(signal) {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new DOMException("The operation was aborted", "AbortError");
+}
+
+// `import()` cannot be cancelled, but the caller can stop waiting for it. The
+// cached load keeps running so a later operation reuses the settled module.
+function abortable(promise, signal) {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(abortedReason(signal));
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(abortedReason(signal));
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
 export class AssetLoader {
-  async loadStyles(hrefs = []) {
-    await Promise.all(hrefs.map((href) => this.loadStyle(href)));
+  async loadStyles(hrefs = [], signal) {
+    await Promise.all(hrefs.map((href) => abortable(this.loadStyle(href), signal)));
   }
 
-  async loadScripts(srcs = []) {
-    await Promise.all(srcs.map((src) => this.loadModule(src)));
+  async loadScripts(srcs = [], signal) {
+    await Promise.all(srcs.map((src) => abortable(this.loadModule(src), signal)));
   }
 
   loadStyle(href) {
@@ -72,7 +99,7 @@ export class AssetLoader {
     });
   }
 
-  async loadRegisteredComponents(root) {
+  async loadRegisteredComponents(root, signal) {
     const config = getConfig();
     const tags = new Set();
 
@@ -90,7 +117,7 @@ export class AssetLoader {
           log(`No registered module for <${tag}>`);
           return;
         }
-        await this.loadModule(src);
+        await abortable(this.loadModule(src), signal);
         if (!customElements.get(tag)) {
           throw new Error(`Registered module did not define <${tag}>: ${src}`);
         }

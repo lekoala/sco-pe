@@ -21,6 +21,7 @@ export default defineConfig({
     ? [
         { name: "chromium", use: chromiumUse },
         { name: "firefox", use: { browserName: "firefox" } },
+        { name: "webkit", use: { browserName: "webkit" } },
       ]
     : [{ name: "chromium", use: chromiumUse }],
 });

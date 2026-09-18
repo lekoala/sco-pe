@@ -61,6 +61,7 @@ test("refuses to render non-HTML responses by default", async ({ page }) => {
 
 test("does not load Scope-Script from refused non-HTML responses", async ({ page }) => {
   await page.goto("/");
+  await expect(page.locator("sco-pe#main h1")).toHaveText("Users");
   await page.evaluate(() => {
     window.__badModuleLoaded = false;
     document
@@ -441,10 +442,17 @@ test("reorders keyed kept widgets without reconnecting them", async ({ page }) =
   await page.locator("#keep-reorder-link").click();
 
   await expect(page.locator("#middle")).toHaveText("Middle updated");
-  await expect(page.locator("#widget-a")).toHaveAttribute("data-connected-count", "1");
-  await expect(page.locator("#widget-b")).toHaveAttribute("data-connected-count", "1");
-  await expect.poll(() => page.locator("#widget-a").evaluate((el) => el.customState)).toBe("a");
-  await expect.poll(() => page.locator("#widget-b").evaluate((el) => el.customState)).toBe("b");
+  // Reordering without reconnecting needs Element.moveBefore. Engines without
+  // it fall back to insertBefore, which reconnects the custom elements.
+  const supportsMoveBefore = await page.evaluate(
+    () => typeof Element.prototype.moveBefore === "function",
+  );
+  if (supportsMoveBefore) {
+    await expect(page.locator("#widget-a")).toHaveAttribute("data-connected-count", "1");
+    await expect(page.locator("#widget-b")).toHaveAttribute("data-connected-count", "1");
+    await expect.poll(() => page.locator("#widget-a").evaluate((el) => el.customState)).toBe("a");
+    await expect.poll(() => page.locator("#widget-b").evaluate((el) => el.customState)).toBe("b");
+  }
   await expect
     .poll(() =>
       page.locator("#widget-list").evaluate((el) => [...el.children].map((child) => child.id)),
@@ -591,4 +599,171 @@ test("exposes HTTP failure separately from successful rendering", async ({ page 
   await expect
     .poll(() => page.evaluate(() => window.__validationResult))
     .toEqual({ ok: false, rendered: true });
+});
+
+test("a routed response cannot overwrite a newer target navigation", async ({ page }) => {
+  await page.goto("/target-asset-race");
+  await page.evaluate(() => {
+    customElements.get("sco-pe").configure({
+      components: { "slow-widget": "/tests/fixtures/slow-widget.js" },
+    });
+  });
+
+  await page.locator("#target-slow-link").click();
+  await page.waitForTimeout(80);
+  await page.locator("#sidebar-update-link").click();
+
+  await expect(page.locator("sco-pe#sidebar > h2")).toHaveText("Sidebar new");
+  await page.waitForTimeout(350);
+  await expect(page.locator("sco-pe#sidebar > h2")).toHaveText("Sidebar new");
+  await expect(page.locator("sco-pe#sidebar")).toHaveAttribute("aria-busy", "false");
+});
+
+test("a canceled scope-swap leaves the DOM untouched", async ({ page }) => {
+  await page.goto("/swap-cancel");
+  await page.evaluate(() => {
+    customElements.get("sco-pe").configure({
+      components: { "slow-widget": "/tests/fixtures/slow-widget.js" },
+    });
+  });
+
+  await page.locator("#swap-slow").click();
+  await page.waitForTimeout(80);
+  await page.locator("#swap-fast").click();
+
+  await expect(page.locator("#list > h1")).toHaveText("Swapped fast");
+  await page.waitForTimeout(350);
+  await expect(page.locator("#list > h1")).toHaveText("Swapped fast");
+});
+
+test("respects a defaultPrevented event from a closer listener", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("sco-pe#main h1")).toHaveText("Users");
+  await page.evaluate(() => {
+    window.__loads = 0;
+    document.addEventListener("scope:before-load", () => window.__loads++);
+    document.getElementById("next").addEventListener("click", (event) => event.preventDefault());
+  });
+
+  await page.locator("#next").click();
+  await page.waitForTimeout(100);
+  await expect(page.locator("sco-pe#main h1")).toHaveText("Users");
+  await expect.poll(() => page.evaluate(() => window.__loads)).toBe(0);
+});
+
+test("autosubmit respects native form validity and novalidate", async ({ page }) => {
+  await page.goto("/autosubmit-validation");
+  let requests = 0;
+  await page.route("**/autosubmit-validation-result*", async (route) => {
+    requests += 1;
+    await route.continue();
+  });
+
+  await page.evaluate(() => {
+    document.getElementById("vq").dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.waitForTimeout(150);
+  expect(requests).toBe(0);
+  await expect(page.locator("sco-pe#main h1")).toHaveText("Autosubmit validation");
+
+  await page.evaluate(() => {
+    const input = document.getElementById("vq");
+    input.value = "ada";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await expect(page.locator("sco-pe#main h1")).toHaveText("Valid: ada");
+  expect(requests).toBe(1);
+
+  await page.goto("/autosubmit-novalidate");
+  let novalidateRequests = 0;
+  await page.route("**/autosubmit-novalidate-result*", async (route) => {
+    novalidateRequests += 1;
+    await route.continue();
+  });
+  await page.evaluate(() => {
+    document.getElementById("vq").dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await expect(page.locator("sco-pe#main h1")).toHaveText("Novalidate: ");
+  expect(novalidateRequests).toBe(1);
+});
+
+test("preserves application history state and restores via back/forward", async ({ page }) => {
+  await page.goto("/history");
+  await page.evaluate(() => {
+    history.replaceState({ appMarker: 42 }, "", window.location.href);
+  });
+
+  await page.locator("#history-one").click();
+  await expect(page).toHaveURL(/\/history-one$/);
+  const afterOne = await page.evaluate(() => history.state);
+  expect(afterOne.appMarker).toBe(42);
+  expect(afterOne.scope.id).toBe("main");
+
+  await page.locator("#history-two").click();
+  await expect(page).toHaveURL(/\/history-two$/);
+  expect(await page.evaluate(() => history.state.appMarker)).toBe(42);
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/history-one$/);
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("History one");
+
+  await page.goForward();
+  await expect(page).toHaveURL(/\/history-two$/);
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("History two");
+});
+
+test("times out slow requests and recovers the busy state", async ({ page }) => {
+  await page.goto("/timeout");
+  await page.evaluate(() => {
+    window.__timeouts = 0;
+    document.addEventListener("scope:error", (event) => {
+      if (event.detail.timedOut) window.__timeouts += 1;
+    });
+  });
+
+  await page.locator("#timeout-link").click();
+  await expect.poll(() => page.evaluate(() => window.__timeouts)).toBe(1);
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Timeout");
+  await expect(page.locator("sco-pe#main")).toHaveAttribute("aria-busy", "false");
+});
+
+test("sync=drop ignores navigation while a request is in flight", async ({ page }) => {
+  await page.goto("/sync-drop");
+  let requests = 0;
+  await page.route("**/slow-*", async (route) => {
+    requests += 1;
+    await route.continue();
+  });
+
+  await page.evaluate(() => {
+    window.__dropped = 0;
+    document
+      .getElementById("main")
+      .addEventListener("scope:sync-dropped", () => window.__dropped++);
+    document.getElementById("sync-one").click();
+    document.getElementById("sync-two").click();
+  });
+
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Slow one");
+  await expect.poll(() => page.evaluate(() => window.__dropped)).toBe(1);
+  await page.waitForTimeout(250);
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Slow one");
+  expect(requests).toBe(1);
+});
+
+test("sync=queue runs the latest navigation after the current one", async ({ page }) => {
+  await page.goto("/sync-queue");
+  let requests = 0;
+  await page.route("**/slow-*", async (route) => {
+    requests += 1;
+    await route.continue();
+  });
+
+  await page.evaluate(() => {
+    document.getElementById("sync-one").click();
+    document.getElementById("sync-two").click();
+  });
+
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Slow two", { timeout: 3000 });
+  expect(requests).toBe(2);
 });

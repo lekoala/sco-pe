@@ -1,4 +1,4 @@
-# Upgrade notes for the proposed 0.2 rewrite
+# Upgrade notes from 0.1
 
 ## What changed
 

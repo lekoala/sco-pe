@@ -1145,6 +1145,155 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/target-asset-race") {
+    send(
+      res,
+      200,
+      page(`
+        <sco-pe id="main" history="true"><h1>Main</h1><a id="target-slow-link" href="/target-slow">Update sidebar</a></sco-pe>
+        <sco-pe id="sidebar" history="false"><h2>Sidebar initial</h2><a id="sidebar-update-link" href="/sidebar-update">Sidebar nav</a></sco-pe>
+      `),
+    );
+    return;
+  }
+
+  if (url.pathname === "/target-slow") {
+    send(
+      res,
+      200,
+      '<sco-pe id="sidebar"><h2>Routed old</h2><slow-widget id="routed-widget"></slow-widget></sco-pe>',
+      { "Scope-Target": "sidebar" },
+    );
+    return;
+  }
+
+  if (url.pathname === "/sidebar-update") {
+    send(res, 200, "<h2>Sidebar new</h2>");
+    return;
+  }
+
+  if (url.pathname === "/swap-cancel") {
+    send(
+      res,
+      200,
+      page(`
+        <sco-pe id="main" history="true" scope-swap="#list">
+          <div id="list"><h1>Swap start</h1><a id="swap-slow" href="/swap-slow">Slow</a> <a id="swap-fast" href="/swap-fast">Fast</a></div>
+        </sco-pe>
+      `),
+    );
+    return;
+  }
+
+  if (url.pathname === "/swap-slow") {
+    send(res, 200, '<div id="list"><h1>Swapped old</h1><slow-widget></slow-widget></div>');
+    return;
+  }
+
+  if (url.pathname === "/swap-fast") {
+    send(res, 200, '<div id="list"><h1>Swapped fast</h1></div>');
+    return;
+  }
+
+  if (url.pathname === "/autosubmit-validation") {
+    send(
+      res,
+      200,
+      page(`
+        <sco-pe id="main" history="true" autosubmit="30">
+          <h1>Autosubmit validation</h1>
+          <form id="vform" action="/autosubmit-validation-result" method="get">
+            <input id="vq" name="q" required>
+          </form>
+        </sco-pe>
+      `),
+    );
+    return;
+  }
+
+  if (url.pathname === "/autosubmit-validation-result") {
+    const q = url.searchParams.get("q") || "";
+    send(
+      res,
+      200,
+      `<h1>Valid: ${q}</h1><form id="vform" action="/autosubmit-validation-result" method="get"><input id="vq" name="q" value="${q}" required></form>`,
+    );
+    return;
+  }
+
+  if (url.pathname === "/autosubmit-novalidate") {
+    send(
+      res,
+      200,
+      page(`
+        <sco-pe id="main" history="true" autosubmit="30">
+          <h1>Autosubmit novalidate</h1>
+          <form id="vform" action="/autosubmit-novalidate-result" method="get" novalidate>
+            <input id="vq" name="q" required>
+          </form>
+        </sco-pe>
+      `),
+    );
+    return;
+  }
+
+  if (url.pathname === "/autosubmit-novalidate-result") {
+    const q = url.searchParams.get("q") || "";
+    send(res, 200, `<h1>Novalidate: ${q}</h1>`);
+    return;
+  }
+
+  if (url.pathname === "/timeout") {
+    send(
+      res,
+      200,
+      page(
+        scope(
+          "Timeout",
+          '<a id="timeout-link" href="/very-slow">Slow</a>',
+          'history="true" timeout="60"',
+        ),
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/very-slow") {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    send(res, 200, scope("Very slow"));
+    return;
+  }
+
+  if (url.pathname === "/sync-drop") {
+    send(
+      res,
+      200,
+      page(
+        scope(
+          "Sync drop",
+          '<a id="sync-one" href="/slow-one">One</a> <a id="sync-two" href="/slow-two">Two</a>',
+          'history="false" sync="drop"',
+        ),
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/sync-queue") {
+    send(
+      res,
+      200,
+      page(
+        scope(
+          "Sync queue",
+          '<a id="sync-one" href="/slow-one">One</a> <a id="sync-two" href="/slow-two">Two</a>',
+          'history="false" sync="queue"',
+        ),
+      ),
+    );
+    return;
+  }
+
   const filePath = normalize(join(root, url.pathname));
   if (filePath.startsWith(root)) {
     try {

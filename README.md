@@ -71,6 +71,8 @@ Attributes on `<sco-pe>` are the public custom element API:
   scroll="top"
   announce="auto"
   autosubmit="300"
+  sync="queue"
+  timeout="30000"
   keep="same-html"
   keep-selector="admin-rich-select, admin-map"
   transition="fade"
@@ -94,6 +96,8 @@ keep                none|same-html
 keep-selector       optional selector for kept same-html elements
 transition          none or a CSS mode name, e.g. fade
 transition-timeout  fallback duration in ms
+sync                replace|queue|drop for overlapping requests
+timeout             request timeout in ms, default 60000
 disabled            leave links and forms to the browser (unless exactly "false")
 ```
 
@@ -173,6 +177,34 @@ form intact and avoiding focus loss:
 ```
 
 The server returns only the replacement fragment, not the full scope wrapper.
+
+## Timeouts and synchronization
+
+Every request has a configurable timeout, `60000` ms by default. Override it per scope or globally:
+
+```html
+<sco-pe id="main" src="/reports" timeout="10000"></sco-pe>
+```
+
+```js
+Scope.configure({ timeout: 30000 });
+```
+
+A timed-out request reports `timedOut: true` in `scope:error`, runs `onError`, and releases the busy state. Asset waits (styles, scripts, registered components) share the same deadline. `import()` cannot be aborted, so a timed-out module load stops blocking the operation while the module itself keeps resolving in the background.
+
+Overlapping requests replace each other by default, which fits GET search and filtering. For mutations, opt into a different policy so a cancellation never races a server write already received:
+
+```html
+<sco-pe id="account" src="/account" sync="queue"></sco-pe>
+```
+
+```txt
+replace  cancel the in-flight request and start the new one (default)
+queue    run the latest navigation once the in-flight request settles
+drop     ignore new navigations while a request is in flight
+```
+
+`drop` emits `scope:sync-dropped`. With `queue`, a newer navigation replaces an older one that is still waiting. Because cancelling a fetch does not undo a server mutation, choose `queue` or `drop` for POST forms.
 
 ## Keep expensive widgets
 

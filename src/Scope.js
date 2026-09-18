@@ -43,18 +43,35 @@ function mergeRequestHeaders(base, override) {
   return headers;
 }
 
-function combineSignals(controller, externalSignal) {
-  if (!externalSignal) return controller.signal;
+function combineSignals(controller, ...externalSignals) {
+  const signals = externalSignals.filter(Boolean);
+  if (!signals.length) return controller.signal;
   if (typeof AbortSignal.any === "function") {
-    return AbortSignal.any([controller.signal, externalSignal]);
+    return AbortSignal.any([controller.signal, ...signals]);
   }
-  if (externalSignal.aborted) controller.abort(externalSignal.reason);
-  else {
-    externalSignal.addEventListener("abort", () => controller.abort(externalSignal.reason), {
-      once: true,
-    });
+  for (const signal of signals) {
+    if (signal.aborted) {
+      controller.abort(signal.reason);
+      break;
+    }
+    signal.addEventListener("abort", () => controller.abort(signal.reason), { once: true });
   }
   return controller.signal;
+}
+
+// A dedicated timer gives us a reliable `timedOut()` signal on every engine,
+// independently of the error name a browser reports for an aborted fetch.
+function createTimeoutSignal(ms) {
+  if (!(ms > 0)) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort(new DOMException("The operation timed out", "TimeoutError"));
+  }, ms);
+  return {
+    signal: controller.signal,
+    timedOut: () => controller.signal.aborted,
+    dispose: () => clearTimeout(timer),
+  };
 }
 
 function throwIfAborted(signal) {
@@ -219,6 +236,9 @@ export default class Scope extends HTMLElement {
   #abortController = null;
   #activeRequestId = null;
   #requestSequence = 0;
+  #operationSequence = 0;
+  #activeOperation = null;
+  #pendingRequest = null;
   #autosubmitTimer = null;
 
   static configure(next) {
@@ -298,6 +318,9 @@ export default class Scope extends HTMLElement {
 
   handleEvent(event) {
     if (event.target.closest?.("sco-pe") !== this) return;
+    // A listener closer to the trigger may have claimed the event (custom
+    // confirmation, another component). Respect that decision.
+    if (event.defaultPrevented) return;
     if (this.hasAttribute("disabled") && this.getAttribute("disabled") !== "false") return;
     if (isModifiedClick(event)) return;
 
@@ -342,6 +365,11 @@ export default class Scope extends HTMLElement {
     const delay = numberAttribute(this, "autosubmit", getConfig().autosubmitDelay);
     clearTimeout(this.#autosubmitTimer);
     this.#autosubmitTimer = setTimeout(() => {
+      // Live filters must not bypass native validation. `checkValidity()` is
+      // silent, and a later input event will resubmit once the form is valid.
+      if (!form.noValidate && typeof form.checkValidity === "function" && !form.checkValidity()) {
+        return;
+      }
       this.load(form, null, { userInitiated: true, autosubmit: true }).catch((error) => {
         this.dispatchEvent(new CustomEvent("scope:error", eventDetail({ error })));
       });
@@ -355,10 +383,54 @@ export default class Scope extends HTMLElement {
       this.#abortController = null;
     }
     this.#activeRequestId = null;
+    this.#activeOperation = null;
     if (cleanup) {
       setBusy(this, false);
       setRevalidating(this, false);
     }
+  }
+
+  // Every DOM-writing operation (a local load or a routed response targeting
+  // this scope) claims a token. A newer operation invalidates older ones, so a
+  // slow response can never overwrite content that landed in the meantime.
+  #claimOperation() {
+    this.abortLoading({ cleanup: false });
+    const id = ++this.#operationSequence;
+    this.#activeOperation = id;
+    return id;
+  }
+
+  #isCurrentOperation(id) {
+    return id != null && this.#activeOperation === id;
+  }
+
+  #assertOperation(id, signal) {
+    throwIfAborted(signal);
+    if (!this.#isCurrentOperation(id)) {
+      throw new DOMException("The operation was superseded", "AbortError");
+    }
+  }
+
+  #requestInFlight() {
+    return this.#abortController !== null;
+  }
+
+  #enqueueRequest(start) {
+    const previous = this.#pendingRequest;
+    if (previous) {
+      this.#pendingRequest = null;
+      previous.resolve({ ok: false, dropped: true, superseded: true, aborted: false });
+    }
+    return new Promise((resolve, reject) => {
+      this.#pendingRequest = { start, resolve, reject };
+    });
+  }
+
+  #flushPendingRequest() {
+    const pending = this.#pendingRequest;
+    if (!pending) return;
+    this.#pendingRequest = null;
+    pending.start().then(pending.resolve, pending.reject);
   }
 
   reload(options = {}) {
@@ -396,12 +468,34 @@ export default class Scope extends HTMLElement {
     const submitterWasDisabled = submitter?.disabled;
     if (submitter) submitter.disabled = true;
 
-    try {
-      const result = await this.loadURL(
+    const start = () =>
+      this.loadURL(
         url,
         { method, body, headers },
         { ...context, trigger, select, scroll, focus, target },
       );
+
+    // GET keeps replacing the in-flight request. Mutations can opt into `queue`
+    // or `drop` so a fetch cancellation never races a server write. Internal
+    // continuations (redirects, reloads, popstate) bypass this gate.
+    const sync = scopeOption("sync", this, getConfig().sync) || "replace";
+    let pending = null;
+    if (sync !== "replace" && this.#requestInFlight()) {
+      if (sync === "drop") {
+        this.dispatchEvent(
+          new CustomEvent(
+            "scope:sync-dropped",
+            eventDetail({ url: expandURL(url).href, method: String(method || "GET") }),
+          ),
+        );
+        pending = Promise.resolve({ ok: false, dropped: true, aborted: false, rendered: false });
+      } else if (sync === "queue") {
+        pending = this.#enqueueRequest(start);
+      }
+    }
+
+    try {
+      const result = await (pending || start());
 
       if (useHistory && result.ok && !result.aborted) {
         this.updateHistory(result.url || url, select, { replace: Boolean(context.autosubmit) });
@@ -451,14 +545,17 @@ export default class Scope extends HTMLElement {
   async loadURL(url, fetchOptions = {}, context = {}) {
     const config = getConfig();
     const absoluteUrl = expandURL(url).href;
+
     const controller = new AbortController();
     const requestId = ++this.#requestSequence;
+    const timeout = numberAttribute(this, "timeout", config.timeout);
+    const timeoutHandle = createTimeoutSignal(timeout);
 
     const options = {
       method: "GET",
       ...fetchOptions,
       headers: mergeRequestHeaders(config.requestHeaders, fetchOptions.headers),
-      signal: combineSignals(controller, fetchOptions.signal),
+      signal: combineSignals(controller, fetchOptions.signal, timeoutHandle?.signal),
     };
 
     const before = new CustomEvent("scope:before-load", {
@@ -479,7 +576,7 @@ export default class Scope extends HTMLElement {
 
     // Only an accepted load supersedes the current request. A canceled
     // navigation must not abort work that is already in flight.
-    this.abortLoading({ cleanup: false });
+    const operationId = this.#claimOperation();
     this.#abortController = controller;
     this.#activeRequestId = requestId;
 
@@ -497,19 +594,24 @@ export default class Scope extends HTMLElement {
         ...context,
         requestUrl: absoluteUrl,
         signal: options.signal,
+        operationId,
       });
-      if (this.#activeRequestId === requestId) {
+      if (this.#activeRequestId === requestId && !result.stale) {
         afterLoadStarted = true;
         await this.afterLoad(result);
       }
       return result;
     } catch (error) {
-      const aborted = error?.name === "AbortError";
+      const timedOut = timeoutHandle?.timedOut() === true || error?.name === "TimeoutError";
+      // A timeout often reaches us as an engine-specific AbortError. Surface it
+      // as a real error instead of swallowing it as a quiet cancellation.
+      const aborted = !timedOut && error?.name === "AbortError";
       const stale = this.#activeRequestId !== requestId;
       const result = {
         ok: false,
         error,
         aborted,
+        timedOut,
         stale,
         rendered: false,
         status: responseStatus,
@@ -526,11 +628,14 @@ export default class Scope extends HTMLElement {
       }
       return result;
     } finally {
+      timeoutHandle?.dispose();
       if (this.#activeRequestId === requestId) {
         setBusy(this, false);
         setRevalidating(this, false);
         this.#activeRequestId = null;
         this.#abortController = null;
+        if (this.#isCurrentOperation(operationId)) this.#activeOperation = null;
+        this.#flushPendingRequest();
       }
     }
   }
@@ -610,8 +715,8 @@ export default class Scope extends HTMLElement {
       );
     }
 
-    await assets.loadStyles(headerDetail.styles);
-    await assets.loadScripts(headerDetail.scripts);
+    await assets.loadStyles(headerDetail.styles, context.signal);
+    await assets.loadScripts(headerDetail.scripts, context.signal);
     throwIfAborted(context.signal);
 
     const text = await response.text();
@@ -626,7 +731,7 @@ export default class Scope extends HTMLElement {
 
       // A routed response becomes the newest content for the target scope and
       // therefore supersedes any request that target started for itself.
-      targetScope.abortLoading({ cleanup: false });
+      const operationId = targetScope.#claimOperation();
       setBusy(targetScope, true);
       setRevalidating(targetScope, Boolean(context.revalidating));
       try {
@@ -636,7 +741,18 @@ export default class Scope extends HTMLElement {
           select,
           source: this.id || null,
           target: targetScope.id,
+          operationId,
         });
+        if (!targetScope.#isCurrentOperation(operationId)) {
+          return {
+            ...result,
+            ok: false,
+            aborted: true,
+            stale: true,
+            source: this.id || null,
+            target: targetScope.id,
+          };
+        }
         await targetScope.afterLoad(result);
         return { ...result, source: this.id || null, target: targetScope.id };
       } catch (error) {
@@ -652,9 +768,15 @@ export default class Scope extends HTMLElement {
           source: this.id || null,
           target: targetScope.id,
         };
+        // The target moved on while this response was waiting on an asset.
+        // Its newer operation owns the DOM and the busy state.
+        if (!targetScope.#isCurrentOperation(operationId)) {
+          return { ...result, stale: true };
+        }
         if (aborted) {
           setBusy(targetScope, false);
           setRevalidating(targetScope, false);
+          targetScope.#activeOperation = null;
         } else {
           targetScope.dispatchEvent(new CustomEvent("scope:error", eventDetail(result)));
           await targetScope.afterLoad(result);
@@ -673,7 +795,8 @@ export default class Scope extends HTMLElement {
   }
 
   async processParsedResponse(parsed, response, context = {}) {
-    throwIfAborted(context.signal);
+    const operationId = context.operationId ?? this.#activeOperation;
+    this.#assertOperation(operationId, context.signal);
     const replacement = this.selectReplacement(parsed, context.select);
     const status = response.status;
 
@@ -701,7 +824,7 @@ export default class Scope extends HTMLElement {
         revalidating: context.revalidating,
       };
     }
-    throwIfAborted(context.signal);
+    this.#assertOperation(operationId, context.signal);
 
     const scrollMode = context.scroll || getConfig().scroll;
     const restoreScroll = scrollMode === "keep" ? saveScrollPositions(this) : null;
@@ -713,8 +836,9 @@ export default class Scope extends HTMLElement {
       const target = this.querySelector(swapSelector);
       const incoming = target ? fragment.firstElementChild : null;
       if (target && incoming) {
-        throwIfAborted(context.signal);
-        await assets.loadRegisteredComponents(incoming);
+        this.#assertOperation(operationId, context.signal);
+        await assets.loadRegisteredComponents(incoming, context.signal);
+        this.#assertOperation(operationId, context.signal);
         const prevHeight = this.clientHeight;
         this.style.minHeight = `${prevHeight}px`;
         target.replaceWith(incoming);
@@ -745,8 +869,8 @@ export default class Scope extends HTMLElement {
     }
 
     const serverSnapshots = snapshotKeptElements(this, fragment);
-    await assets.loadRegisteredComponents(fragment);
-    throwIfAborted(context.signal);
+    await assets.loadRegisteredComponents(fragment, context.signal);
+    this.#assertOperation(operationId, context.signal);
     if (replacement.scope) copyScopeAttributes(this, replacement.scope);
     const prevHeight = this.clientHeight;
     this.style.minHeight = `${prevHeight}px`;
@@ -754,7 +878,6 @@ export default class Scope extends HTMLElement {
     setTimeout(() => {
       this.style.minHeight = "";
     }, 0);
-    throwIfAborted(context.signal);
     rememberServerSnapshots(this, serverSnapshots);
     rememberKeptElements(this);
 
@@ -860,15 +983,21 @@ export default class Scope extends HTMLElement {
   }
 
   updateHistory(url, select = null, { replace = false } = {}) {
-    const state = { scope: { id: this.id, url, select } };
-    if (history.state?.scope && sameHistoryURL(history.state.scope.url, url)) return;
-    if (!history.state?.scope) {
+    // `history.state.scope` is reserved by sco-pe. Every other property belongs
+    // to the application and must survive scoped navigation.
+    const previous = history.state && typeof history.state === "object" ? history.state : {};
+    if (previous.scope && sameHistoryURL(previous.scope.url, url)) return;
+    if (!previous.scope) {
       history.replaceState(
-        { scope: { id: this.id, url: window.location.href, select: null } },
+        {
+          ...previous,
+          scope: { id: this.id, url: window.location.href, select: null },
+        },
         "",
         window.location.href,
       );
     }
+    const state = { ...previous, scope: { id: this.id, url, select } };
     if (replace) history.replaceState(state, "", url);
     else history.pushState(state, "", url);
   }

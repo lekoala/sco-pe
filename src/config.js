@@ -33,6 +33,8 @@ export const DEFAULT_CONFIG = {
   scroll: "top",
   announce: "auto",
   autosubmitDelay: 300,
+  timeout: 60000,
+  sync: "replace",
   transition: "none",
   transitionTimeout: 250,
   components: {},

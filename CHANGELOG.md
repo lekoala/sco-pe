@@ -34,6 +34,13 @@
   custom element.
 - Removes the unused fragment asset-template convention; dynamic assets now use
   headers or the component registry.
+- Prevents a superseded routed `Scope-Target` response or `scope-swap` from
+  writing the DOM after a newer target navigation.
+- Respects `event.defaultPrevented` and native form validity (`novalidate`) for
+  autosubmit, and preserves application keys in `history.state`.
+- Adds a configurable request `timeout` shared with asset loading, and a
+  `sync="replace|queue|drop"` policy for overlapping requests.
+- Adds WebKit to CI and real back/forward history regression tests.
 - Adds CI (Bun, split verify/browser jobs on the Playwright container), refreshed
   bundles, and regression tests for the new behaviors.
 
