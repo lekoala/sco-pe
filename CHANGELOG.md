@@ -60,6 +60,13 @@
   beyond v0.2, and adds `docs/server-contract.md` (dual representation,
   `Vary: Scope-Request`, PSR-7 example, `/admin-flow` fixture) plus
   `docs/security.md`.
+- Retries the initial `src` load when the scope was detached mid-flight
+  instead of leaving an empty initialized scope, without leaking `scope:error`.
+- Resolves fragment insertion-time resource URLs (`img`, `source`, `video`,
+  `audio`, `track`, `iframe`) against the response URL; unchanged resolutions
+  keep their original text.
+- Preserves an author-provided inline `min-height` across swaps instead of
+  clearing it after the layout hold.
 
 See [the upgrade notes](docs/upgrade-notes.md) for breaking changes and migration
 guidance.

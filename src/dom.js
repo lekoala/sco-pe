@@ -28,6 +28,61 @@ export function isNodeEmpty(node) {
   return node.textContent.trim() === "" && !node.firstElementChild;
 }
 
+function resolvedURL(raw, base) {
+  try {
+    return new URL(raw, base).href;
+  } catch {
+    return null;
+  }
+}
+
+// Returns the response-base resolution only when it differs from what the
+// document base would produce. Identical resolutions keep their original
+// text, so snapshots and authored markup stay untouched whenever the
+// navigation does not change the effective base.
+function rewrittenURL(raw, base) {
+  if (!raw) return null;
+  const target = resolvedURL(raw, base);
+  if (!target) return null;
+  return resolvedURL(raw, document.baseURI) === target ? null : target;
+}
+
+function resolveSrcset(value, base) {
+  return String(value)
+    .split(",")
+    .map((part) => {
+      const tokens = part.trim().split(/\s+/);
+      if (!tokens[0]) return part;
+      const url = rewrittenURL(tokens[0], base);
+      if (!url) return part;
+      tokens[0] = url;
+      return tokens.join(" ");
+    })
+    .join(", ");
+}
+
+// Resources that start loading at insertion time (`img`, `source`, `video`,
+// `audio`, `track`, `iframe`) would otherwise resolve against the document
+// URL from before the navigation, because history only updates after the
+// swap. Links and forms are intentionally excluded: they resolve lazily at
+// interaction time, once history has been updated.
+export function resolveFragmentURLs(root, base) {
+  if (!base || !root?.querySelectorAll) return;
+  root
+    .querySelectorAll("img[src], source[src], video[src], audio[src], track[src], iframe[src]")
+    .forEach((el) => {
+      const url = rewrittenURL(el.getAttribute("src"), base);
+      if (url) el.setAttribute("src", url);
+    });
+  root.querySelectorAll("img[srcset], source[srcset]").forEach((el) => {
+    el.setAttribute("srcset", resolveSrcset(el.getAttribute("srcset"), base));
+  });
+  root.querySelectorAll("video[poster]").forEach((el) => {
+    const url = rewrittenURL(el.getAttribute("poster"), base);
+    if (url) el.setAttribute("poster", url);
+  });
+}
+
 export function fragmentToHTML(fragment) {
   const div = document.createElement("div");
   div.appendChild(fragment.cloneNode(true));

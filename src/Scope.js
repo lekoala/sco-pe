@@ -8,6 +8,7 @@ import {
   fragmentToHTML,
   isNodeEmpty,
   parseHTML,
+  resolveFragmentURLs,
 } from "./dom.js";
 import {
   createReplacementFragment,
@@ -215,6 +216,17 @@ function eventDetail(extra = {}) {
   return { bubbles: true, cancelable: false, detail: extra };
 }
 
+// Hold layout during a swap without destroying an author-provided min-height.
+function holdMinHeight(scope) {
+  const value = scope.style.getPropertyValue("min-height");
+  const priority = scope.style.getPropertyPriority("min-height");
+  scope.style.minHeight = `${scope.clientHeight}px`;
+  return () => {
+    if (value) scope.style.setProperty("min-height", value, priority);
+    else scope.style.removeProperty("min-height");
+  };
+}
+
 function isSafeMethod(method) {
   return method === "GET" || method === "HEAD";
 }
@@ -236,6 +248,8 @@ function confirmationMessage(trigger, submitter = null) {
 
 export default class Scope extends HTMLElement {
   #initialized = false;
+  #initializing = false;
+  #initSequence = 0;
   #abortController = null;
   #activeRequestId = null;
   #requestSequence = 0;
@@ -273,21 +287,45 @@ export default class Scope extends HTMLElement {
 
     // A custom element can be moved or temporarily detached. Reconnecting an
     // already initialized scope must not reload its src or run setup twice.
-    if (this.#initialized) {
+    // A reconnect while the initial load is still running joins it instead.
+    if (this.#initialized || this.#initializing) {
       this.markActiveLinks();
       return;
     }
+    this.#initializing = true;
+    const initToken = ++this.#initSequence;
 
     queueMicrotask(async () => {
-      if (!this.isConnected || this.#initialized) return;
+      // A newer connect schedules its own load; this one is superseded.
+      if (initToken !== this.#initSequence) return;
+      if (!this.isConnected || this.#initialized) {
+        this.#initializing = false;
+        return;
+      }
       log(`Scope init ${this.id || "(no id)"}`);
       try {
-        await this.loadContent({ checkExisting: true, userInitiated: false });
+        // `loadURL` reports cancellations as `{ aborted: true }` results
+        // rather than throwing, so an abort must be detected here too.
+        const initial = await this.loadContent({ checkExisting: true, userInitiated: false });
+        // An initial load killed before rendering (detach abort, superseded
+        // operation) leaves the scope uninitialized while disconnected, so
+        // the next reconnect retries instead of leaving an empty scope.
+        if (!initial.rendered && !this.isConnected) {
+          this.#initializing = false;
+          return;
+        }
         this.#initialized = true;
+        this.#initializing = false;
         this.markActiveLinks();
         rememberKeptElements(this);
         log(`Scope ready ${this.id || "(no id)"}`);
       } catch (error) {
+        this.#initializing = false;
+        // An initial load aborted by a detach is not a failure: stay
+        // uninitialized so the next reconnect retries the load instead of
+        // leaving an empty scope. Events on a detached node would be
+        // invisible to document listeners anyway.
+        if (!this.isConnected) return;
         this.#initialized = true;
         const result = {
           ok: false,
@@ -304,6 +342,7 @@ export default class Scope extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this.#initializing = false;
     this.abortLoading();
     clearTimeout(this.#autosubmitTimer);
     this.removeEventListener("click", this);
@@ -862,6 +901,9 @@ export default class Scope extends HTMLElement {
     const restoreScroll = scrollMode === "keep" ? saveScrollPositions(this) : null;
 
     const fragment = createReplacementFragment(this, replacement.html);
+    // Insertion-time resources must resolve against the response URL, not
+    // the pre-navigation document base (history updates after the swap).
+    resolveFragmentURLs(fragment, response.url || context.requestUrl);
 
     const swapSelector = this.getAttribute("scope-swap");
     if (swapSelector) {
@@ -894,11 +936,10 @@ export default class Scope extends HTMLElement {
         active !== document.body &&
         this.contains(active) &&
         !target.contains(active);
-      const prevHeight = this.clientHeight;
-      this.style.minHeight = `${prevHeight}px`;
+      const releaseHeight = holdMinHeight(this);
       target.replaceWith(incoming);
       setTimeout(() => {
-        this.style.minHeight = "";
+        releaseHeight();
       }, 0);
       const detail = {
         ok: response.ok,
@@ -926,11 +967,10 @@ export default class Scope extends HTMLElement {
     await assets.loadRegisteredComponents(fragment, context.signal);
     this.#assertOperation(operationId, context.signal);
     if (replacement.scope) copyScopeAttributes(this, replacement.scope);
-    const prevHeight = this.clientHeight;
-    this.style.minHeight = `${prevHeight}px`;
+    const releaseHeight = holdMinHeight(this);
     replaceChildren(this, fragment, swapKeptChildren);
     setTimeout(() => {
-      this.style.minHeight = "";
+      releaseHeight();
     }, 0);
     rememberServerSnapshots(this, serverSnapshots);
     rememberKeptElements(this);

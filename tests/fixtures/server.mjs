@@ -1503,6 +1503,58 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/reconnect-slow") {
+    send(
+      res,
+      200,
+      page('<sco-pe id="main" src="/reconnect-slow-content" history="true"></sco-pe>'),
+    );
+    return;
+  }
+
+  if (url.pathname === "/reconnect-slow-content") {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    send(res, 200, scope("Reconnect slow", "<p>Loaded after detach</p>"));
+    return;
+  }
+
+  if (url.pathname === "/relative-url") {
+    send(
+      res,
+      200,
+      page(scope("Relative start", '<a id="relative-link" href="/relative-url/next">Next</a>')),
+    );
+    return;
+  }
+
+  if (url.pathname === "/relative-url/next") {
+    send(
+      res,
+      200,
+      scope(
+        "Relative next",
+        '<img id="probe" src="images/photo.jpg"><img id="probe-set" src="a.png" srcset="small.png 480w, large.png 800w"><img id="probe-abs" src="/static/x.png">',
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/min-height") {
+    send(
+      res,
+      200,
+      page(
+        '<sco-pe id="main" history="false" style="min-height: 20rem"><h1>Height start</h1><a id="height-link" href="/min-height-next">Next</a></sco-pe>',
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/min-height-next") {
+    send(res, 200, '<sco-pe id="main"><h1>Height next</h1></sco-pe>');
+    return;
+  }
+
   const filePath = normalize(join(root, url.pathname));
   if (filePath.startsWith(root)) {
     try {

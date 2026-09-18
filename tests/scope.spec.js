@@ -999,6 +999,60 @@ test("admin flow loads a custom element through Scope-Script", async ({ page }) 
   await expect(page.locator("demo-widget#flow-widget")).toHaveAttribute("data-upgraded", "true");
 });
 
+test("retries the initial load when detached mid-flight", async ({ page }) => {
+  let requests = 0;
+  await page.route("**/reconnect-slow-content", async (route) => {
+    requests += 1;
+    await route.continue();
+  });
+
+  await page.goto("/reconnect-slow");
+  await page.waitForTimeout(50);
+  await page.evaluate(() => {
+    window.__errors = 0;
+    document.addEventListener("scope:error", () => window.__errors++);
+    const scope = document.getElementById("main");
+    window.__scope = scope;
+    const marker = document.createComment("scope-position");
+    window.__marker = marker;
+    scope.before(marker);
+    scope.remove();
+  });
+
+  await page.waitForTimeout(50);
+  await page.evaluate(() => window.__marker.replaceWith(window.__scope));
+
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Reconnect slow");
+  expect(requests).toBe(2);
+  await expect.poll(() => page.evaluate(() => window.__errors)).toBe(0);
+});
+
+test("resolves fragment relative URLs against the response URL", async ({ page }) => {
+  await page.goto("/relative-url");
+  await page.locator("#relative-link").click();
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Relative next");
+
+  const src = await page.locator("#probe").getAttribute("src");
+  expect(src).toBe("http://127.0.0.1:4173/relative-url/images/photo.jpg");
+  const srcset = await page.locator("#probe-set").getAttribute("srcset");
+  expect(srcset).toBe(
+    "http://127.0.0.1:4173/relative-url/small.png 480w, http://127.0.0.1:4173/relative-url/large.png 800w",
+  );
+  // Unaffected values keep their original text.
+  await expect(page.locator("#probe-abs")).toHaveAttribute("src", "/static/x.png");
+});
+
+test("preserves an author-provided min-height across swaps", async ({ page }) => {
+  await page.goto("/min-height");
+  await page.locator("#height-link").click();
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Height next");
+  await page.waitForTimeout(50);
+  const minHeight = await page.evaluate(() =>
+    document.getElementById("main").style.getPropertyValue("min-height"),
+  );
+  expect(minHeight).toBe("20rem");
+});
+
 test("transitions use the configured timeout when the attribute is absent", async ({ page }) => {
   await page.goto("/transition");
   await page.evaluate(() => {

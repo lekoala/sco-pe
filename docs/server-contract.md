@@ -83,6 +83,23 @@ transport success from rendering.
   `reset: true` as a signal only. sco-pe does not reset forms automatically;
   application code decides what "reset" means for its own state.
 
+## Swap ordering and relative URLs
+
+The swap happens before the browser history entry is updated. Two
+consequences follow:
+
+- Insertion-time resources in the fragment (`img`, `source`, `video`,
+  `audio`, `track`, `iframe` `src`/`srcset`, `video` `poster`) are resolved
+  against the response URL by the client. Links and forms are unaffected:
+  they resolve lazily at interaction time, once history reflects the new URL.
+- During the swap itself, `window.location` still shows the previous URL. A
+  component that needs the final URL must read it from `scope:load` /
+  `afterLoad` (`detail.url`), not from `window.location` in
+  `connectedCallback`.
+
+`Scope-Script`, `Scope-Style` and component-registry paths resolve against
+the document base, so prefer root-absolute paths there.
+
 ## Caching
 
 Send `Vary: Scope-Request` only when the same URL genuinely produces two

@@ -107,6 +107,50 @@ function parseHTML(html) {
 function isNodeEmpty(node) {
   return node.textContent.trim() === "" && !node.firstElementChild;
 }
+function resolvedURL(raw, base) {
+  try {
+    return new URL(raw, base).href;
+  } catch {
+    return null;
+  }
+}
+function rewrittenURL(raw, base) {
+  if (!raw)
+    return null;
+  const target = resolvedURL(raw, base);
+  if (!target)
+    return null;
+  return resolvedURL(raw, document.baseURI) === target ? null : target;
+}
+function resolveSrcset(value, base) {
+  return String(value).split(",").map((part) => {
+    const tokens = part.trim().split(/\s+/);
+    if (!tokens[0])
+      return part;
+    const url = rewrittenURL(tokens[0], base);
+    if (!url)
+      return part;
+    tokens[0] = url;
+    return tokens.join(" ");
+  }).join(", ");
+}
+function resolveFragmentURLs(root, base) {
+  if (!base || !root?.querySelectorAll)
+    return;
+  root.querySelectorAll("img[src], source[src], video[src], audio[src], track[src], iframe[src]").forEach((el) => {
+    const url = rewrittenURL(el.getAttribute("src"), base);
+    if (url)
+      el.setAttribute("src", url);
+  });
+  root.querySelectorAll("img[srcset], source[srcset]").forEach((el) => {
+    el.setAttribute("srcset", resolveSrcset(el.getAttribute("srcset"), base));
+  });
+  root.querySelectorAll("video[poster]").forEach((el) => {
+    const url = rewrittenURL(el.getAttribute("poster"), base);
+    if (url)
+      el.setAttribute("poster", url);
+  });
+}
 function fragmentToHTML(fragment) {
   const div = document.createElement("div");
   div.appendChild(fragment.cloneNode(true));
@@ -965,6 +1009,17 @@ function sameHistoryURL(a, b) {
 function eventDetail(extra = {}) {
   return { bubbles: true, cancelable: false, detail: extra };
 }
+function holdMinHeight(scope) {
+  const value = scope.style.getPropertyValue("min-height");
+  const priority = scope.style.getPropertyPriority("min-height");
+  scope.style.minHeight = `${scope.clientHeight}px`;
+  return () => {
+    if (value)
+      scope.style.setProperty("min-height", value, priority);
+    else
+      scope.style.removeProperty("min-height");
+  };
+}
 function isSafeMethod(method) {
   return method === "GET" || method === "HEAD";
 }
@@ -986,6 +1041,8 @@ function confirmationMessage(trigger, submitter = null) {
 
 class Scope extends HTMLElement {
   #initialized = false;
+  #initializing = false;
+  #initSequence = 0;
   #abortController = null;
   #activeRequestId = null;
   #requestSequence = 0;
@@ -1016,21 +1073,35 @@ class Scope extends HTMLElement {
     this.addEventListener("submit", this);
     this.addEventListener("input", this);
     this.addEventListener("change", this);
-    if (this.#initialized) {
+    if (this.#initialized || this.#initializing) {
       this.markActiveLinks();
       return;
     }
+    this.#initializing = true;
+    const initToken = ++this.#initSequence;
     queueMicrotask(async () => {
-      if (!this.isConnected || this.#initialized)
+      if (initToken !== this.#initSequence)
         return;
+      if (!this.isConnected || this.#initialized) {
+        this.#initializing = false;
+        return;
+      }
       log(`Scope init ${this.id || "(no id)"}`);
       try {
-        await this.loadContent({ checkExisting: true, userInitiated: false });
+        const initial = await this.loadContent({ checkExisting: true, userInitiated: false });
+        if (!initial.rendered && !this.isConnected) {
+          this.#initializing = false;
+          return;
+        }
         this.#initialized = true;
+        this.#initializing = false;
         this.markActiveLinks();
         rememberKeptElements(this);
         log(`Scope ready ${this.id || "(no id)"}`);
       } catch (error) {
+        this.#initializing = false;
+        if (!this.isConnected)
+          return;
         this.#initialized = true;
         const result = {
           ok: false,
@@ -1046,6 +1117,7 @@ class Scope extends HTMLElement {
     });
   }
   disconnectedCallback() {
+    this.#initializing = false;
     this.abortLoading();
     clearTimeout(this.#autosubmitTimer);
     this.removeEventListener("click", this);
@@ -1504,6 +1576,7 @@ class Scope extends HTMLElement {
     const scrollMode = enumOption(context.scroll || getConfig().scroll, ["top", "keep", "none", "hash"], "top", "scroll");
     const restoreScroll = scrollMode === "keep" ? saveScrollPositions(this) : null;
     const fragment = createReplacementFragment(this, replacement.html);
+    resolveFragmentURLs(fragment, response.url || context.requestUrl);
     const swapSelector = this.getAttribute("scope-swap");
     if (swapSelector) {
       const target = this.querySelector(swapSelector);
@@ -1519,11 +1592,10 @@ class Scope extends HTMLElement {
       this.#assertOperation(operationId, context.signal);
       const active = document.activeElement;
       const preserveFocus = active instanceof Element && active !== document.body && this.contains(active) && !target.contains(active);
-      const prevHeight = this.clientHeight;
-      this.style.minHeight = `${prevHeight}px`;
+      const releaseHeight = holdMinHeight(this);
       target.replaceWith(incoming);
       setTimeout(() => {
-        this.style.minHeight = "";
+        releaseHeight();
       }, 0);
       const detail = {
         ok: response.ok,
@@ -1554,11 +1626,10 @@ class Scope extends HTMLElement {
     this.#assertOperation(operationId, context.signal);
     if (replacement.scope)
       copyScopeAttributes(this, replacement.scope);
-    const prevHeight = this.clientHeight;
-    this.style.minHeight = `${prevHeight}px`;
+    const releaseHeight = holdMinHeight(this);
     replaceChildren(this, fragment, swapKeptChildren);
     setTimeout(() => {
-      this.style.minHeight = "";
+      releaseHeight();
     }, 0);
     rememberServerSnapshots(this, serverSnapshots);
     rememberKeptElements(this);
@@ -1728,5 +1799,5 @@ export {
   sco_pe_default as default
 };
 
-//# debugId=AA96AD639B17AE5364756E2164756E21
+//# debugId=B28585838FEE2DED64756E2164756E21
 //# sourceMappingURL=sco-pe.js.map
