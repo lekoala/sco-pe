@@ -81,7 +81,10 @@ function throwIfAborted(signal) {
 }
 
 function numberAttribute(el, name, fallback) {
-  const value = Number(el.getAttribute(name));
+  if (!el?.hasAttribute?.(name)) return fallback;
+  const raw = el.getAttribute(name);
+  if (raw == null || raw === "") return fallback;
+  const value = Number(raw);
   return Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
@@ -387,6 +390,9 @@ export default class Scope extends HTMLElement {
     if (cleanup) {
       setBusy(this, false);
       setRevalidating(this, false);
+      // An explicit cancel or a disconnect must not leave a queued request that
+      // a later, unrelated request could trigger.
+      this.#dropPendingRequest();
     }
   }
 
@@ -431,6 +437,13 @@ export default class Scope extends HTMLElement {
     if (!pending) return;
     this.#pendingRequest = null;
     pending.start().then(pending.resolve, pending.reject);
+  }
+
+  #dropPendingRequest() {
+    const pending = this.#pendingRequest;
+    if (!pending) return;
+    this.#pendingRequest = null;
+    pending.resolve({ ok: false, dropped: true, aborted: true, rendered: false });
   }
 
   reload(options = {}) {

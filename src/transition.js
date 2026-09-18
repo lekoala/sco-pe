@@ -7,7 +7,10 @@ function prefersReducedMotion() {
 }
 
 function timeoutFor(scope) {
-  const local = Number(scope.getAttribute("transition-timeout"));
+  if (!scope.hasAttribute("transition-timeout")) return getConfig().transitionTimeout;
+  const raw = scope.getAttribute("transition-timeout");
+  if (raw == null || raw === "") return getConfig().transitionTimeout;
+  const local = Number(raw);
   if (Number.isFinite(local) && local >= 0) return local;
   return getConfig().transitionTimeout;
 }

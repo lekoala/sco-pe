@@ -40,6 +40,10 @@
   autosubmit, and preserves application keys in `history.state`.
 - Adds a configurable request `timeout` shared with asset loading, and a
   `sync="replace|queue|drop"` policy for overlapping requests.
+- Uses the configured `timeout` and `transitionTimeout` when their attributes
+  are absent instead of falling back to zero.
+- Drops queued (`sync="queue"`) requests when a scope is explicitly aborted or
+  disconnected, so a stale request cannot fire later.
 - Adds WebKit to CI and real back/forward history regression tests.
 - Adds CI (Bun, split verify/browser jobs on the Playwright container), refreshed
   bundles, and regression tests for the new behaviors.

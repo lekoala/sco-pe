@@ -767,3 +767,96 @@ test("sync=queue runs the latest navigation after the current one", async ({ pag
   await expect(page.locator("sco-pe#main > h1")).toHaveText("Slow two", { timeout: 3000 });
   expect(requests).toBe(2);
 });
+
+test("uses the configured timeout when no timeout attribute is set", async ({ page }) => {
+  await page.goto("/timeout");
+  await page.evaluate(() => {
+    document.getElementById("main").removeAttribute("timeout");
+    customElements.get("sco-pe").configure({ timeout: 30 });
+    window.__timeouts = 0;
+    document.addEventListener("scope:error", (event) => {
+      if (event.detail.timedOut) window.__timeouts += 1;
+    });
+  });
+
+  await page.locator("#timeout-link").click();
+  await expect.poll(() => page.evaluate(() => window.__timeouts)).toBe(1);
+  await expect(page.locator("sco-pe#main")).toHaveAttribute("aria-busy", "false");
+});
+
+test("a timeout attribute overrides the configured timeout", async ({ page }) => {
+  await page.goto("/timeout");
+  await page.evaluate(() => {
+    customElements.get("sco-pe").configure({ timeout: 10000 });
+    window.__timeouts = 0;
+    document.addEventListener("scope:error", (event) => {
+      if (event.detail.timedOut) window.__timeouts += 1;
+    });
+  });
+
+  await page.locator("#timeout-link").click();
+  await expect.poll(() => page.evaluate(() => window.__timeouts)).toBe(1);
+});
+
+test("an explicit abort drops a queued request", async ({ page }) => {
+  await page.goto("/sync-queue");
+  let slowTwoRequests = 0;
+  await page.route("**/slow-two", async (route) => {
+    slowTwoRequests += 1;
+    await route.continue();
+  });
+
+  await page.evaluate(() => {
+    document.getElementById("sync-one").click();
+    document.getElementById("sync-two").click();
+  });
+  await page.waitForTimeout(30);
+  await page.evaluate(() => document.getElementById("main").abortLoading());
+
+  await page.evaluate(() => document.getElementById("sync-one").click());
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Slow one");
+  await page.waitForTimeout(300);
+  expect(slowTwoRequests).toBe(0);
+});
+
+test("a disconnect drops a queued request", async ({ page }) => {
+  await page.goto("/sync-queue");
+  let slowTwoRequests = 0;
+  await page.route("**/slow-two", async (route) => {
+    slowTwoRequests += 1;
+    await route.continue();
+  });
+
+  await page.evaluate(() => {
+    document.getElementById("sync-one").click();
+    document.getElementById("sync-two").click();
+  });
+  await page.waitForTimeout(30);
+  await page.evaluate(() => {
+    const scope = document.getElementById("main");
+    const marker = document.createComment("scope-position");
+    scope.before(marker);
+    scope.remove();
+    marker.replaceWith(scope);
+  });
+
+  await page.evaluate(() => document.getElementById("sync-one").click());
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Slow one");
+  await page.waitForTimeout(300);
+  expect(slowTwoRequests).toBe(0);
+});
+
+test("transitions use the configured timeout when the attribute is absent", async ({ page }) => {
+  await page.goto("/transition");
+  await page.evaluate(() => {
+    document.getElementById("main").removeAttribute("transition-timeout");
+    customElements.get("sco-pe").configure({ transitionTimeout: 400 });
+  });
+
+  await page.locator("#transition-link").click();
+  await expect(page.locator("sco-pe#main .scope-outgoing")).toHaveCount(1);
+  // With a 0 fallback the outgoing layer would already be gone here.
+  await page.waitForTimeout(150);
+  await expect(page.locator("sco-pe#main .scope-outgoing")).toHaveCount(1);
+  await expect(page.locator("sco-pe#main .scope-outgoing")).toHaveCount(0, { timeout: 1500 });
+});

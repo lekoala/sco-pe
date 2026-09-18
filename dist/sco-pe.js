@@ -684,7 +684,12 @@ function prefersReducedMotion() {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
 }
 function timeoutFor(scope) {
-  const local = Number(scope.getAttribute("transition-timeout"));
+  if (!scope.hasAttribute("transition-timeout"))
+    return getConfig().transitionTimeout;
+  const raw = scope.getAttribute("transition-timeout");
+  if (raw == null || raw === "")
+    return getConfig().transitionTimeout;
+  const local = Number(raw);
   if (Number.isFinite(local) && local >= 0)
     return local;
   return getConfig().transitionTimeout;
@@ -847,7 +852,12 @@ function throwIfAborted(signal) {
   throw new DOMException("The operation was aborted", "AbortError");
 }
 function numberAttribute(el, name, fallback) {
-  const value = Number(el.getAttribute(name));
+  if (!el?.hasAttribute?.(name))
+    return fallback;
+  const raw = el.getAttribute(name);
+  if (raw == null || raw === "")
+    return fallback;
+  const value = Number(raw);
   return Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 function scopeOption(name, scope, fallback = null) {
@@ -1112,6 +1122,7 @@ class Scope extends HTMLElement {
     if (cleanup) {
       setBusy(this, false);
       setRevalidating(this, false);
+      this.#dropPendingRequest();
     }
   }
   #claimOperation() {
@@ -1148,6 +1159,13 @@ class Scope extends HTMLElement {
       return;
     this.#pendingRequest = null;
     pending.start().then(pending.resolve, pending.reject);
+  }
+  #dropPendingRequest() {
+    const pending = this.#pendingRequest;
+    if (!pending)
+      return;
+    this.#pendingRequest = null;
+    pending.resolve({ ok: false, dropped: true, aborted: true, rendered: false });
   }
   reload(options = {}) {
     const state = history.state?.scope;
@@ -1693,5 +1711,5 @@ export {
   sco_pe_default as default
 };
 
-//# debugId=CD6B832DA235450064756E2164756E21
+//# debugId=E2352CE12ADCB6EB64756E2164756E21
 //# sourceMappingURL=sco-pe.js.map
