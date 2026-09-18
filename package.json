@@ -1,6 +1,6 @@
 {
   "name": "sco-pe",
-  "version": "0.2.0-alpha.3",
+  "version": "0.2.0",
   "description": "Scoped navigation custom element, progressively enhances links and forms in server-rendered apps",
   "type": "module",
   "main": "sco-pe.js",

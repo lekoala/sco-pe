@@ -1,6 +1,9 @@
 # Changelog
 
-## 0.2.0-dev
+## Unreleased
+
+
+## 0.2.0
 
 - Adds `scope-swap` attribute to replace a single child element instead of the
   entire scope content, preventing focus loss on form inputs during autosubmit.
@@ -70,3 +73,7 @@
 
 See [the upgrade notes](docs/upgrade-notes.md) for breaking changes and migration
 guidance.
+
+## 0.1.0
+
+Never released, no changelog entries.
