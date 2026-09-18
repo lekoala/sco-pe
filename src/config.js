@@ -34,7 +34,7 @@ export const DEFAULT_CONFIG = {
   announce: "auto",
   autosubmitDelay: 300,
   timeout: 60000,
-  sync: "replace",
+  sync: "auto",
   transition: "none",
   transitionTimeout: 250,
   components: {},
@@ -48,6 +48,13 @@ export const DEFAULT_CONFIG = {
   onLoad: () => {},
   onError: () => {},
 };
+
+export function enumOption(value, allowed, fallback, name = "option") {
+  if (value == null || value === "") return fallback;
+  if (allowed.includes(value)) return value;
+  log(`Unknown ${name} "${value}", falling back to "${fallback}"`);
+  return fallback;
+}
 
 let config = { ...DEFAULT_CONFIG, headers: { ...DEFAULT_HEADERS } };
 

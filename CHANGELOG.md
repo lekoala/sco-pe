@@ -47,6 +47,19 @@
 - Adds WebKit to CI and real back/forward history regression tests.
 - Adds CI (Bun, split verify/browser jobs on the Playwright container), refreshed
   bundles, and regression tests for the new behaviors.
+- Defaults `sync` to `auto` (safe methods replace, mutations drop with
+  `scope:sync-dropped`); explicit `replace|queue|drop` unchanged, and `queue`
+  stays latest-pending rather than a FIFO.
+- Makes `scope-swap` fail closed (missing target or ambiguous payload errors
+  instead of full-swapping) and preserves surviving focus outside the swapped
+  child.
+- Normalizes `sync|focus|scroll|announce|keep` values with documented
+  fallbacks, removes the undocumented `focus="preserve"` alias, and documents
+  `205` as a no-swap `reset: true` lifecycle signal.
+- Documents the WebKit `keep` reordering limitation, defers multi-target
+  beyond v0.2, and adds `docs/server-contract.md` (dual representation,
+  `Vary: Scope-Request`, PSR-7 example, `/admin-flow` fixture) plus
+  `docs/security.md`.
 
 See [the upgrade notes](docs/upgrade-notes.md) for breaking changes and migration
 guidance.

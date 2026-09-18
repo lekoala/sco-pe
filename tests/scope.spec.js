@@ -846,6 +846,159 @@ test("a disconnect drops a queued request", async ({ page }) => {
   expect(slowTwoRequests).toBe(0);
 });
 
+test("scope-swap with a missing local target fails instead of full-swapping", async ({ page }) => {
+  await page.goto("/swap-missing");
+  await page.evaluate(() => {
+    window.__errors = [];
+    document.addEventListener("scope:error", (event) => window.__errors.push(event.detail));
+  });
+
+  await page.locator("#swap-missing-link").click();
+  await expect.poll(() => page.evaluate(() => window.__errors.length)).toBe(1);
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Swap missing start");
+  await expect(page.locator("sco-pe#main")).toHaveAttribute("aria-busy", "false");
+});
+
+test("scope-swap with zero or multiple response roots fails explicitly", async ({ page }) => {
+  await page.goto("/swap-multi");
+  await page.evaluate(() => {
+    window.__errors = [];
+    document.addEventListener("scope:error", (event) => window.__errors.push(event.detail));
+  });
+
+  await page.locator("#swap-multi-link").click();
+  await expect.poll(() => page.evaluate(() => window.__errors.length)).toBe(1);
+  await expect(page.locator("sco-pe#main #list > h1")).toHaveText("Swap multi start");
+  await expect(page.locator("sco-pe#main")).toHaveAttribute("aria-busy", "false");
+});
+
+test("a routed scope-swap failure reports scope:error on the target scope", async ({ page }) => {
+  await page.goto("/target-swap-invalid");
+  await page.evaluate(() => {
+    window.__errorTargets = [];
+    document.addEventListener("scope:error", (event) =>
+      window.__errorTargets.push(event.target.id),
+    );
+  });
+
+  await page.locator("#target-invalid-link").click();
+  await expect.poll(() => page.evaluate(() => window.__errorTargets)).toContain("sidebar");
+  await expect(page.locator("sco-pe#sidebar > h2")).toHaveText("Sidebar initial");
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Main stays put");
+  await expect(page.locator("sco-pe#sidebar")).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator("sco-pe#main")).toHaveAttribute("aria-busy", "false");
+});
+
+test("sync=auto drops a concurrent mutation while one is in flight", async ({ page }) => {
+  await page.goto("/sync-auto");
+  let requests = 0;
+  await page.route("**/sync-auto-submit", async (route) => {
+    requests += 1;
+    await route.continue();
+  });
+
+  await page.evaluate(() => {
+    window.__dropped = 0;
+    document
+      .getElementById("main")
+      .addEventListener("scope:sync-dropped", () => window.__dropped++);
+    document.getElementById("auto-one").requestSubmit();
+    document.getElementById("auto-two").requestSubmit();
+  });
+
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Auto: one");
+  await expect.poll(() => page.evaluate(() => window.__dropped)).toBe(1);
+  await page.waitForTimeout(300);
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Auto: one");
+  expect(requests).toBe(1);
+});
+
+test("sync=auto still replaces concurrent safe GETs", async ({ page }) => {
+  await page.goto("/cancel");
+  let requests = 0;
+  await page.route("**/slow-*", async (route) => {
+    requests += 1;
+    await route.continue();
+  });
+
+  await page.locator("#slow-one").click();
+  await page.waitForTimeout(80);
+  await page.locator("#slow-two").click();
+
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Slow two");
+  expect(requests).toBe(2);
+});
+
+test("admin flow serves full documents without Scope-Request and fragments with it", async ({
+  page,
+}) => {
+  await page.goto("/admin-flow");
+  const full = await page.evaluate(async () => {
+    const response = await fetch("/admin-flow/users");
+    return { vary: response.headers.get("vary"), body: await response.text() };
+  });
+  expect(full.vary).toContain("Scope-Request");
+  expect(full.body).toContain("<html");
+  expect(full.body).toContain('id="user-results"');
+
+  const fragment = await page.evaluate(async () => {
+    const response = await fetch("/admin-flow/users", {
+      headers: { "Scope-Request": "true" },
+    });
+    return await response.text();
+  });
+  expect(fragment).not.toContain("<html");
+  expect(fragment).toContain('id="user-results"');
+});
+
+test("admin flow filters through scope-swap without losing form focus", async ({ page }) => {
+  await page.goto("/admin-flow");
+  await page.locator("#user-q").fill("gra");
+  await expect(page.locator("#user-results > h2")).toHaveText("Users: gra", { timeout: 3000 });
+  await expect(page.locator("#user-results")).toContainText("Grace");
+  await expect(page.locator("#user-results")).not.toContainText("Ada");
+  await expect(page.locator("#user-q")).toBeFocused();
+  await expect(page.locator("#user-q")).toHaveValue("gra");
+  await expect(page.locator("#scope-status")).toHaveText('Filtered by "gra"');
+  await expect(page.locator("sco-pe#users")).toHaveAttribute("aria-busy", "false");
+});
+
+test("admin flow paginates with browser back/forward", async ({ page }) => {
+  await page.goto("/admin-flow");
+  await page.locator("#users-next").click();
+  await expect(page.locator("#user-results > h2")).toHaveText("Users page 2");
+  await expect(page).toHaveURL(/\/admin-flow\/users\?page=2$/);
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/admin-flow$/);
+  await expect(page.locator("#user-results > h2")).toHaveText("Users");
+
+  await page.goForward();
+  await expect(page).toHaveURL(/\/admin-flow\/users\?page=2$/);
+  await expect(page.locator("#user-results > h2")).toHaveText("Users page 2");
+});
+
+test("admin flow validates POST with 422 and updates the sidebar through Scope-Target", async ({
+  page,
+}) => {
+  await page.goto("/admin-flow");
+  await page.locator("#create-form").evaluate((form) => form.requestSubmit());
+  await expect(page.locator("#scope-alert")).toHaveText("Please fix the highlighted fields.");
+  await expect(page.locator("sco-pe#create [role='alert']")).toBeVisible();
+  await expect(page.locator("sco-pe#sidebar #user-count")).toHaveText("3 users");
+
+  await page.locator("#create-email").fill("ada@example.com");
+  await page.locator("#create-form").evaluate((form) => form.requestSubmit());
+  await expect(page.locator("sco-pe#sidebar #user-count")).toHaveText("4 users");
+  await expect(page.locator("#scope-status")).toHaveText("User created");
+});
+
+test("admin flow loads a custom element through Scope-Script", async ({ page }) => {
+  await page.goto("/admin-flow");
+  await page.locator("#widget-link").click();
+  await expect(page.locator("demo-widget#flow-widget")).toHaveAttribute("data-upgraded", "true");
+});
+
 test("transitions use the configured timeout when the attribute is absent", async ({ page }) => {
   await page.goto("/transition");
   await page.evaluate(() => {

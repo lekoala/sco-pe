@@ -31,7 +31,7 @@ var DEFAULT_CONFIG = {
   announce: "auto",
   autosubmitDelay: 300,
   timeout: 60000,
-  sync: "replace",
+  sync: "auto",
   transition: "none",
   transitionTimeout: 250,
   components: {},
@@ -45,6 +45,14 @@ var DEFAULT_CONFIG = {
   onLoad: () => {},
   onError: () => {}
 };
+function enumOption(value, allowed, fallback, name = "option") {
+  if (value == null || value === "")
+    return fallback;
+  if (allowed.includes(value))
+    return value;
+  log(`Unknown ${name} "${value}", falling back to "${fallback}"`);
+  return fallback;
+}
 var config = { ...DEFAULT_CONFIG, headers: { ...DEFAULT_HEADERS } };
 function getConfig() {
   return config;
@@ -227,7 +235,7 @@ function setRevalidating(scope, revalidating) {
 }
 function announce(scope, detail = {}) {
   const config = getConfig();
-  const mode = scope.getAttribute("announce") || config.announce || "auto";
+  const mode = enumOption(scope.getAttribute("announce") || config.announce, ["auto", "status", "alert", "none"], "auto", "announce");
   if (mode === "none")
     return;
   const headerStatus = detail.statusMessage?.trim?.() || null;
@@ -251,8 +259,8 @@ function announce(scope, detail = {}) {
 }
 function focusAfterSwap(scope, detail = {}) {
   const config = getConfig();
-  const mode = detail.focus || scope.getAttribute("focus") || config.focus || "auto";
-  if (mode === "none" || mode === "preserve" || mode === "keep")
+  const mode = enumOption(detail.focus || scope.getAttribute("focus") || config.focus, ["auto", "heading", "first-error", "keep", "none"], "auto", "focus");
+  if (mode === "none" || mode === "keep")
     return;
   if (!detail.userInitiated && mode === "auto")
     return;
@@ -448,7 +456,7 @@ function candidates(root, selector) {
 function shouldKeep(scope, current, next) {
   if (!(current instanceof Element) || !(next instanceof Element))
     return false;
-  if ((scope.getAttribute("keep") || "none") !== "same-html")
+  if (enumOption(scope.getAttribute("keep"), ["none", "same-html"], "none", "keep") !== "same-html")
     return false;
   if (!current.id || current.id !== next.id)
     return false;
@@ -574,7 +582,7 @@ function morphChildren(scope, currentParent, nextParent) {
   }
 }
 function rememberKeptElements(scope) {
-  const mode = scope.getAttribute("keep") || "none";
+  const mode = enumOption(scope.getAttribute("keep"), ["none", "same-html"], "none", "keep");
   if (mode === "none")
     return;
   const selector = scope.getAttribute("keep-selector");
@@ -602,7 +610,7 @@ function createReplacementFragment(_scope, html) {
   return template.content;
 }
 function swapKeptChildren(scope, fragment) {
-  if ((scope.getAttribute("keep") || "none") === "same-html") {
+  if (enumOption(scope.getAttribute("keep"), ["none", "same-html"], "none", "keep") === "same-html") {
     morphChildren(scope, scope, fragment);
   } else {
     scope.replaceChildren(fragment);
@@ -1185,15 +1193,17 @@ class Scope extends HTMLElement {
     const { url, method, body, headers, submitter } = buildRequest(trigger, event);
     const isLink = trigger.matches?.("a[href]");
     const select = scopeOption("select", this);
-    const scroll = scopeOption("scroll", this, getConfig().scroll);
-    const focus = scopeOption("focus", this, getConfig().focus);
+    const scroll = enumOption(scopeOption("scroll", this, getConfig().scroll), ["top", "keep", "none", "hash"], "top", "scroll");
+    const focus = enumOption(scopeOption("focus", this, getConfig().focus), ["auto", "heading", "first-error", "keep", "none"], "auto", "focus");
     const target = scopeOption("target", this);
     const useHistory = this.shouldUseHistory() && isSafeMethod(method) && (isLink || trigger instanceof HTMLFormElement);
     const submitterWasDisabled = submitter?.disabled;
     if (submitter)
       submitter.disabled = true;
     const start = () => this.loadURL(url, { method, body, headers }, { ...context, trigger, select, scroll, focus, target });
-    const sync = scopeOption("sync", this, getConfig().sync) || "replace";
+    const rawSync = scopeOption("sync", this, getConfig().sync);
+    const syncOption = enumOption(rawSync, ["auto", "replace", "queue", "drop"], "auto", "sync");
+    const sync = syncOption === "auto" ? isSafeMethod(method) ? "replace" : "drop" : syncOption;
     let pending = null;
     if (sync !== "replace" && this.#requestInFlight()) {
       if (sync === "drop") {
@@ -1491,46 +1501,53 @@ class Scope extends HTMLElement {
       };
     }
     this.#assertOperation(operationId, context.signal);
-    const scrollMode = context.scroll || getConfig().scroll;
+    const scrollMode = enumOption(context.scroll || getConfig().scroll, ["top", "keep", "none", "hash"], "top", "scroll");
     const restoreScroll = scrollMode === "keep" ? saveScrollPositions(this) : null;
     const fragment = createReplacementFragment(this, replacement.html);
     const swapSelector = this.getAttribute("scope-swap");
     if (swapSelector) {
       const target = this.querySelector(swapSelector);
-      const incoming = target ? fragment.firstElementChild : null;
-      if (target && incoming) {
-        this.#assertOperation(operationId, context.signal);
-        await assets.loadRegisteredComponents(incoming, context.signal);
-        this.#assertOperation(operationId, context.signal);
-        const prevHeight = this.clientHeight;
-        this.style.minHeight = `${prevHeight}px`;
-        target.replaceWith(incoming);
-        setTimeout(() => {
-          this.style.minHeight = "";
-        }, 0);
-        const detail = {
-          ok: response.ok,
-          rendered: true,
-          status,
-          url: response.url || context.requestUrl,
-          userInitiated: context.userInitiated,
-          revalidating: context.revalidating,
-          statusMessage: context.statusMessage,
-          alertMessage: context.alertMessage,
-          focus: context.focus,
-          scroll: context.scroll,
-          source: context.source || this.id || null,
-          target: context.target || this.id || null
-        };
-        this.dispatchEvent(new CustomEvent("scope:after-swap", eventDetail(detail)));
-        focusAfterSwap(this, detail);
-        if (restoreScroll)
-          restoreScroll();
-        else
-          scrollScope(this, scrollMode, detail.url);
-        announce(this, detail);
-        return detail;
+      if (!target) {
+        throw new Error(`scope-swap target not found: "${swapSelector}" in scope ${this.id || "(anonymous)"}`);
       }
+      if (fragment.childElementCount !== 1) {
+        throw new Error(`scope-swap response must contain exactly one root element for "${swapSelector}" in scope ${this.id || "(anonymous)"}, got ${fragment.childElementCount}`);
+      }
+      const incoming = fragment.firstElementChild;
+      this.#assertOperation(operationId, context.signal);
+      await assets.loadRegisteredComponents(incoming, context.signal);
+      this.#assertOperation(operationId, context.signal);
+      const active = document.activeElement;
+      const preserveFocus = active instanceof Element && active !== document.body && this.contains(active) && !target.contains(active);
+      const prevHeight = this.clientHeight;
+      this.style.minHeight = `${prevHeight}px`;
+      target.replaceWith(incoming);
+      setTimeout(() => {
+        this.style.minHeight = "";
+      }, 0);
+      const detail = {
+        ok: response.ok,
+        rendered: true,
+        status,
+        url: response.url || context.requestUrl,
+        userInitiated: context.userInitiated,
+        revalidating: context.revalidating,
+        statusMessage: context.statusMessage,
+        alertMessage: context.alertMessage,
+        focus: context.focus,
+        scroll: context.scroll,
+        source: context.source || this.id || null,
+        target: context.target || this.id || null
+      };
+      this.dispatchEvent(new CustomEvent("scope:after-swap", eventDetail(detail)));
+      if (!preserveFocus)
+        focusAfterSwap(this, detail);
+      if (restoreScroll)
+        restoreScroll();
+      else
+        scrollScope(this, scrollMode, detail.url);
+      announce(this, detail);
+      return detail;
     }
     const serverSnapshots = snapshotKeptElements(this, fragment);
     await assets.loadRegisteredComponents(fragment, context.signal);
@@ -1711,5 +1728,5 @@ export {
   sco_pe_default as default
 };
 
-//# debugId=E2352CE12ADCB6EB64756E2164756E21
+//# debugId=AA96AD639B17AE5364756E2164756E21
 //# sourceMappingURL=sco-pe.js.map

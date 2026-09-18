@@ -1294,6 +1294,215 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  const isScopeRequest = req.headers["scope-request"] === "true";
+
+  if (url.pathname === "/swap-missing") {
+    send(
+      res,
+      200,
+      page(`
+        <sco-pe id="main" history="false" scope-swap="#absent">
+          <h1>Swap missing start</h1>
+          <a id="swap-missing-link" href="/swap-missing-response">Load</a>
+        </sco-pe>
+      `),
+    );
+    return;
+  }
+
+  if (url.pathname === "/swap-missing-response") {
+    send(res, 200, "<div><h1>Should never render</h1></div>");
+    return;
+  }
+
+  if (url.pathname === "/swap-multi") {
+    send(
+      res,
+      200,
+      page(`
+        <sco-pe id="main" history="false" scope-swap="#list">
+          <div id="list"><h1>Swap multi start</h1></div>
+          <a id="swap-multi-link" href="/swap-multi-response">Load</a>
+        </sco-pe>
+      `),
+    );
+    return;
+  }
+
+  if (url.pathname === "/swap-multi-response") {
+    send(res, 200, "<div><h1>First</h1></div><div><h1>Second</h1></div>");
+    return;
+  }
+
+  if (url.pathname === "/target-swap-invalid") {
+    send(
+      res,
+      200,
+      page(`
+        <sco-pe id="main" history="false"><h1>Main stays put</h1><a id="target-invalid-link" href="/target-swap-invalid-response">Update sidebar</a></sco-pe>
+        <sco-pe id="sidebar" history="false" scope-swap="#absent"><h2>Sidebar initial</h2></sco-pe>
+      `),
+    );
+    return;
+  }
+
+  if (url.pathname === "/target-swap-invalid-response") {
+    send(res, 200, "<div><h2>Sidebar routed</h2></div>", { "Scope-Target": "sidebar" });
+    return;
+  }
+
+  if (url.pathname === "/sync-auto") {
+    send(
+      res,
+      200,
+      page(
+        scope(
+          "Sync auto",
+          `<form id="auto-one" action="/sync-auto-submit" method="post"><input type="hidden" name="which" value="one"><button>One</button></form>
+           <form id="auto-two" action="/sync-auto-submit" method="post"><input type="hidden" name="which" value="two"><button>Two</button></form>`,
+          'history="false"',
+        ),
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/sync-auto-submit" && req.method === "POST") {
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const raw = await readRequestBody(req);
+    const contentType = req.headers["content-type"] || "";
+    send(res, 200, scope(`Auto: ${bodyValue(raw, contentType, "which")}`));
+    return;
+  }
+
+  const FLOW_USERS = ["Ada", "Grace", "Alan"];
+  function flowResults(q, pageNum) {
+    const query = (q || "").toLowerCase();
+    const rows = FLOW_USERS.filter((name) => name.toLowerCase().includes(query));
+    const items = rows.map((name) => `<p>${name}</p>`).join("");
+    const pager =
+      pageNum === "2"
+        ? `<a id="users-back" href="/admin-flow/users">Back</a>`
+        : `<a id="users-next" href="/admin-flow/users?page=2">Next</a>`;
+    const title = pageNum === "2" ? "Users page 2" : `Users${q ? `: ${q}` : ""}`;
+    return { items, pager, title };
+  }
+
+  if (url.pathname === "/admin-flow") {
+    // Fully server-rendered admin layout: usable without JavaScript, enhanced
+    // in place when sco-pe runs. The filter form lives outside #user-results
+    // so scope-swap updates never touch it.
+    send(
+      res,
+      200,
+      page(`
+        <sco-pe id="users" history="true" autosubmit="60" scope-swap="#user-results">
+          <h1>Users</h1>
+          <form id="user-filter" action="/admin-flow/users" method="get"><input id="user-q" name="q" value=""></form>
+          <div id="user-results"><h2>Users</h2><p>Ada</p><p>Grace</p><p>Alan</p><a id="users-next" href="/admin-flow/users?page=2">Next</a></div>
+        </sco-pe>
+        <sco-pe id="create" history="false">
+          <form id="create-form" action="/admin-flow/new" method="post"><input id="create-email" name="email"><button>Create</button></form>
+        </sco-pe>
+        <sco-pe id="sidebar" history="false" focus="none" scroll="none">
+          <p id="user-count">3 users</p><a id="widget-link" href="/admin-flow/widget">Load widget</a>
+        </sco-pe>
+      `),
+    );
+    return;
+  }
+
+  if (url.pathname === "/admin-flow/users" && req.method === "GET") {
+    const q = url.searchParams.get("q") || "";
+    const pageNum = url.searchParams.get("page") || "1";
+    const { items, pager, title } = flowResults(q, pageNum);
+    const headers = { Vary: "Scope-Request" };
+    if (q) headers["Scope-Status"] = `Filtered by "${q}"`;
+    if (pageNum === "2") headers["Scope-Status"] = "Page 2 loaded";
+    if (isScopeRequest) {
+      send(res, 200, `<div id="user-results"><h2>${title}</h2>${items}${pager}</div>`, headers);
+    } else {
+      send(
+        res,
+        200,
+        page(`
+          <sco-pe id="users" history="true" autosubmit="60" scope-swap="#user-results">
+            <h1>${title}</h1>
+            <form id="user-filter" action="/admin-flow/users" method="get"><input id="user-q" name="q" value="${q}"></form>
+            <div id="user-results"><h2>${title}</h2>${items}${pager}</div>
+          </sco-pe>
+        `),
+        headers,
+      );
+    }
+    return;
+  }
+
+  if (url.pathname === "/admin-flow/new" && req.method === "GET") {
+    const form =
+      '<form id="create-form" action="/admin-flow/new" method="post"><input id="create-email" name="email"><button>Create</button></form>';
+    if (isScopeRequest) {
+      send(res, 200, form, { Vary: "Scope-Request" });
+    } else {
+      send(res, 200, page(`<sco-pe id="create" history="false">${form}</sco-pe>`), {
+        Vary: "Scope-Request",
+      });
+    }
+    return;
+  }
+
+  if (url.pathname === "/admin-flow/new" && req.method === "POST") {
+    const raw = await readRequestBody(req);
+    const contentType = req.headers["content-type"] || "";
+    const email = bodyValue(raw, contentType, "email");
+    if (!email) {
+      const form =
+        '<form id="create-form" action="/admin-flow/new" method="post"><div role="alert">Email is required.</div><input id="create-email" name="email" aria-invalid="true"><button>Create</button></form>';
+      if (isScopeRequest) {
+        send(res, 422, form, {
+          Vary: "Scope-Request",
+          "Scope-Alert": "Please fix the highlighted fields.",
+        });
+      } else {
+        send(res, 422, page(`<sco-pe id="create" history="false">${form}</sco-pe>`), {
+          Vary: "Scope-Request",
+        });
+      }
+      return;
+    }
+    if (isScopeRequest) {
+      send(
+        res,
+        200,
+        '<p id="user-count">4 users</p><a id="widget-link" href="/admin-flow/widget">Load widget</a>',
+        {
+          Vary: "Scope-Request",
+          "Scope-Target": "sidebar",
+          "Scope-Status": "User created",
+        },
+      );
+    } else {
+      send(res, 200, page(scope("User created")), { Vary: "Scope-Request" });
+    }
+    return;
+  }
+
+  if (url.pathname === "/admin-flow/sidebar") {
+    send(
+      res,
+      200,
+      '<p id="user-count">3 users</p><a id="widget-link" href="/admin-flow/widget">Load widget</a>',
+    );
+    return;
+  }
+
+  if (url.pathname === "/admin-flow/widget") {
+    send(res, 200, '<p><demo-widget id="flow-widget">fallback</demo-widget></p>', {
+      "Scope-Script": "/tests/fixtures/demo-widget.js",
+    });
+    return;
+  }
+
   const filePath = normalize(join(root, url.pathname));
   if (filePath.startsWith(root)) {
     try {

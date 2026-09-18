@@ -1,5 +1,30 @@
 # Upgrade notes from 0.1
 
+## Late 0.2 stabilizations
+
+Behavior tightenings applied while still in alpha, before the 0.2 release:
+
+- `sync` defaults to `auto`: `GET`/`HEAD` replace the in-flight request,
+  other methods are dropped with `scope:sync-dropped`. Set
+  `sync="replace|queue|drop"` explicitly to keep an older behavior.
+  `queue` keeps at most one pending intent (latest-pending, not a FIFO).
+- `scope-swap` fails closed. A missing local target or a response without
+  exactly one root element raises `scope:error` and swaps nothing; there is
+  no fallback to a full-scope swap. When `Scope-Target` routes to a scope
+  with an invalid `scope-swap`, the target emits `scope:error` and the source
+  request completes as failed.
+- `focus="preserve"` was removed. It was an undocumented alias of `keep`.
+  Supported values: `auto|heading|first-error|keep|none`.
+- Unknown `sync`, `focus`, `scroll`, `announce` and `keep` values fall back
+  to `auto`, `auto`, `top`, `auto` and `none` respectively (with a debug
+  warning when `debug` is enabled) instead of resolving to an implicit
+  behavior.
+- `205 Reset Content` performs no swap and completes with `reset: true`.
+  sco-pe never resets forms automatically; application code owns the reset.
+- `keep` reconciliation may disconnect/reconnect reordered keyed elements on
+  engines without `Element.moveBefore()` (currently WebKit). Preservation
+  without reordering is unaffected.
+
 ## What changed
 
 The old implementation tried to be a small page loader: it parsed response scripts/styles, executed inline scripts, coordinated global script queues, replaced fragments conditionally, and used `X-*` headers. The proposed runtime is narrower:
@@ -132,8 +157,9 @@ The server response for this scope is just:
 ```
 
 Unlike `keep="same-html"`, no morphing, snapshotting or id-matching is involved
-— the target element is directly replaced with the first element child of the
-server response.
+— the target element is directly replaced with the single root element of the
+server response. A missing target or a payload without exactly one root errors
+instead of swapping (see the stabilizations above).
 
 ## Keep
 

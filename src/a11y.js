@@ -1,4 +1,4 @@
-import { getConfig, log } from "./config.js";
+import { enumOption, getConfig, log } from "./config.js";
 import { isNaturallyFocusable } from "./dom.js";
 
 const liveRegionFrames = new WeakMap();
@@ -49,7 +49,12 @@ export function setRevalidating(scope, revalidating) {
 
 export function announce(scope, detail = {}) {
   const config = getConfig();
-  const mode = scope.getAttribute("announce") || config.announce || "auto";
+  const mode = enumOption(
+    scope.getAttribute("announce") || config.announce,
+    ["auto", "status", "alert", "none"],
+    "auto",
+    "announce",
+  );
   if (mode === "none") return;
 
   const headerStatus = detail.statusMessage?.trim?.() || null;
@@ -84,8 +89,13 @@ export function announce(scope, detail = {}) {
 
 export function focusAfterSwap(scope, detail = {}) {
   const config = getConfig();
-  const mode = detail.focus || scope.getAttribute("focus") || config.focus || "auto";
-  if (mode === "none" || mode === "preserve" || mode === "keep") return;
+  const mode = enumOption(
+    detail.focus || scope.getAttribute("focus") || config.focus,
+    ["auto", "heading", "first-error", "keep", "none"],
+    "auto",
+    "focus",
+  );
+  if (mode === "none" || mode === "keep") return;
   if (!detail.userInitiated && mode === "auto") return;
 
   let target = null;

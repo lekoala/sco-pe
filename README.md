@@ -96,7 +96,7 @@ keep                none|same-html
 keep-selector       optional selector for kept same-html elements
 transition          none or a CSS mode name, e.g. fade
 transition-timeout  fallback duration in ms
-sync                replace|queue|drop for overlapping requests
+sync                auto|replace|queue|drop for overlapping requests (default auto)
 timeout             request timeout in ms, default 60000
 disabled            leave links and forms to the browser (unless exactly "false")
 ```
@@ -178,6 +178,13 @@ form intact and avoiding focus loss:
 
 The server returns only the replacement fragment, not the full scope wrapper.
 
+`scope-swap` fails closed: the local target must exist and the response must
+contain exactly one root element, otherwise the swap errors with `scope:error`
+and nothing is replaced. There is never a silent fallback to a full-scope
+swap. When the focused element lives in the scope but outside the swapped
+child, focus is left alone; only a removed focus target falls back to the
+`focus` policy.
+
 ## Timeouts and synchronization
 
 Every request has a configurable timeout, `60000` ms by default. Override it per scope or globally:
@@ -192,19 +199,28 @@ Scope.configure({ timeout: 30000 });
 
 A timed-out request reports `timedOut: true` in `scope:error`, runs `onError`, and releases the busy state. Asset waits (styles, scripts, registered components) share the same deadline. `import()` cannot be aborted, so a timed-out module load stops blocking the operation while the module itself keeps resolving in the background.
 
-Overlapping requests replace each other by default, which fits GET search and filtering. For mutations, opt into a different policy so a cancellation never races a server write already received:
+The default is `sync="auto"`: safe methods (`GET`, `HEAD`) replace the
+in-flight request, which fits search and filtering, while unsafe methods are
+dropped while a request is in flight so a cancellation never races a server
+write already received. The submitter is disabled during the request, so the
+normal double-click case is already covered.
 
 ```html
 <sco-pe id="account" src="/account" sync="queue"></sco-pe>
 ```
 
 ```txt
-replace  cancel the in-flight request and start the new one (default)
-queue    run the latest navigation once the in-flight request settles
+auto     safe methods replace, unsafe methods drop (default)
+replace  cancel the in-flight request and start the new one
+queue    run the latest waiting navigation once the in-flight request settles
 drop     ignore new navigations while a request is in flight
 ```
 
-`drop` emits `scope:sync-dropped`. With `queue`, a newer navigation replaces an older one that is still waiting. Because cancelling a fetch does not undo a server mutation, choose `queue` or `drop` for POST forms.
+`auto` on an unsafe method and explicit `drop` emit `scope:sync-dropped`.
+`queue` keeps at most one pending intent: a newer waiting navigation replaces
+the older waiting one (latest-pending, not a FIFO). Because cancelling a fetch
+does not undo a server mutation, keep the `auto` default or choose `queue` /
+`drop` explicitly for POST forms.
 
 ## Keep expensive widgets
 
@@ -218,7 +234,9 @@ drop     ignore new navigations while a request is in flight
 
 If `keep-selector` is omitted, the default candidates are custom elements with stable `id`s. sco-pe compares the server HTML snapshot, not client-side mutations made after upgrade.
 
-`keep` is intentionally an island-preservation feature, not a general-purpose DOM morphing API. Use stable, unique ids and keep the selector narrow. Regular server markup around the widget is still updated, including validation errors and reordered keyed islands.
+`keep` is intentionally an island-preservation feature, not a general-purpose DOM morphing API. `keep` may use DOM reconciliation internally, but sco-pe does not expose a general-purpose morphing contract. Use stable, unique ids and keep the selector narrow. Regular server markup around the widget is still updated, including validation errors and reordered keyed islands.
+
+Preserved keyed custom elements retain identity when no reordering is required. Reordering may cause disconnect/reconnect on engines without `Element.moveBefore()`, currently including the WebKit engine covered by the test suite.
 
 ## Transitions
 
@@ -280,7 +298,7 @@ aria-busy="true"
 
 ## Error responses
 
-HTML error responses, including 5xx responses, are swapped into the scope so the server can render a useful recovery page. Cancel that swap when the application needs a different policy:
+HTML error responses, including 5xx responses, are swapped into the scope so the server can render a useful recovery page. `204` and `304` complete without swapping; `205` completes without swapping and reports `reset: true` as a signal only — sco-pe never resets forms automatically. Cancel a swap when the application needs a different policy:
 
 ```js
 document.addEventListener("scope:before-swap", (event) => {
@@ -306,6 +324,12 @@ Scope-Target: sidebar
 ```
 
 `Scope-Script` loads external ES modules with dynamic `import()`. Modules are deduped by absolute URL. Inline scripts from fetched HTML are ignored by design.
+
+The full endpoint contract — dual representation, `422` validation, `204` /
+`205` / `304`, `Vary: Scope-Request`, CSRF, `scope-swap` and concurrency rules,
+plus a framework-neutral PSR-7 example — lives in
+[the server contract](docs/server-contract.md). Security notes (trust model,
+CSP, Trusted Types status) live in [security.md](docs/security.md).
 
 ## Asset loading
 

@@ -1,3 +1,5 @@
+import { enumOption } from "./config.js";
+
 const snapshots = new WeakMap();
 
 function isCustomElement(el) {
@@ -20,7 +22,8 @@ function candidates(root, selector) {
 
 function shouldKeep(scope, current, next) {
   if (!(current instanceof Element) || !(next instanceof Element)) return false;
-  if ((scope.getAttribute("keep") || "none") !== "same-html") return false;
+  if (enumOption(scope.getAttribute("keep"), ["none", "same-html"], "none", "keep") !== "same-html")
+    return false;
   if (!current.id || current.id !== next.id) return false;
   if (!selectorMatches(scope, current)) return false;
 
@@ -157,7 +160,7 @@ function morphChildren(scope, currentParent, nextParent) {
 }
 
 export function rememberKeptElements(scope) {
-  const mode = scope.getAttribute("keep") || "none";
+  const mode = enumOption(scope.getAttribute("keep"), ["none", "same-html"], "none", "keep");
   if (mode === "none") return;
 
   const selector = scope.getAttribute("keep-selector");
@@ -189,7 +192,9 @@ export function createReplacementFragment(_scope, html) {
 }
 
 export function swapKeptChildren(scope, fragment) {
-  if ((scope.getAttribute("keep") || "none") === "same-html") {
+  if (
+    enumOption(scope.getAttribute("keep"), ["none", "same-html"], "none", "keep") === "same-html"
+  ) {
     morphChildren(scope, scope, fragment);
   } else {
     scope.replaceChildren(fragment);

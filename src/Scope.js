@@ -1,6 +1,6 @@
 import { announce, focusAfterSwap, setBusy, setRevalidating } from "./a11y.js";
 import { assets } from "./assets.js";
-import { configure, getConfig, log } from "./config.js";
+import { configure, enumOption, getConfig, log } from "./config.js";
 import {
   copyBodyAttributes,
   copyDocumentAttributes,
@@ -470,8 +470,18 @@ export default class Scope extends HTMLElement {
     const { url, method, body, headers, submitter } = buildRequest(trigger, event);
     const isLink = trigger.matches?.("a[href]");
     const select = scopeOption("select", this);
-    const scroll = scopeOption("scroll", this, getConfig().scroll);
-    const focus = scopeOption("focus", this, getConfig().focus);
+    const scroll = enumOption(
+      scopeOption("scroll", this, getConfig().scroll),
+      ["top", "keep", "none", "hash"],
+      "top",
+      "scroll",
+    );
+    const focus = enumOption(
+      scopeOption("focus", this, getConfig().focus),
+      ["auto", "heading", "first-error", "keep", "none"],
+      "auto",
+      "focus",
+    );
     const target = scopeOption("target", this);
     const useHistory =
       this.shouldUseHistory() &&
@@ -488,10 +498,14 @@ export default class Scope extends HTMLElement {
         { ...context, trigger, select, scroll, focus, target },
       );
 
-    // GET keeps replacing the in-flight request. Mutations can opt into `queue`
-    // or `drop` so a fetch cancellation never races a server write. Internal
-    // continuations (redirects, reloads, popstate) bypass this gate.
-    const sync = scopeOption("sync", this, getConfig().sync) || "replace";
+    // `auto` is the safest default: safe methods keep replacing the in-flight
+    // request, while mutations are dropped so a fetch cancellation never races
+    // a server write already received. `queue` (latest pending intent wins, not
+    // a FIFO) and explicit `replace`/`drop` remain available per scope.
+    // Internal continuations (redirects, reloads, popstate) bypass this gate.
+    const rawSync = scopeOption("sync", this, getConfig().sync);
+    const syncOption = enumOption(rawSync, ["auto", "replace", "queue", "drop"], "auto", "sync");
+    const sync = syncOption === "auto" ? (isSafeMethod(method) ? "replace" : "drop") : syncOption;
     let pending = null;
     if (sync !== "replace" && this.#requestInFlight()) {
       if (sync === "drop") {
@@ -839,46 +853,73 @@ export default class Scope extends HTMLElement {
     }
     this.#assertOperation(operationId, context.signal);
 
-    const scrollMode = context.scroll || getConfig().scroll;
+    const scrollMode = enumOption(
+      context.scroll || getConfig().scroll,
+      ["top", "keep", "none", "hash"],
+      "top",
+      "scroll",
+    );
     const restoreScroll = scrollMode === "keep" ? saveScrollPositions(this) : null;
 
     const fragment = createReplacementFragment(this, replacement.html);
 
     const swapSelector = this.getAttribute("scope-swap");
     if (swapSelector) {
+      // Fail closed: a configured scope-swap never falls back to a full-scope
+      // swap. A missing local target or an ambiguous payload is an explicit
+      // error so a stale selector or a wrong server representation surfaces
+      // immediately instead of replacing unrelated content.
       const target = this.querySelector(swapSelector);
-      const incoming = target ? fragment.firstElementChild : null;
-      if (target && incoming) {
-        this.#assertOperation(operationId, context.signal);
-        await assets.loadRegisteredComponents(incoming, context.signal);
-        this.#assertOperation(operationId, context.signal);
-        const prevHeight = this.clientHeight;
-        this.style.minHeight = `${prevHeight}px`;
-        target.replaceWith(incoming);
-        setTimeout(() => {
-          this.style.minHeight = "";
-        }, 0);
-        const detail = {
-          ok: response.ok,
-          rendered: true,
-          status,
-          url: response.url || context.requestUrl,
-          userInitiated: context.userInitiated,
-          revalidating: context.revalidating,
-          statusMessage: context.statusMessage,
-          alertMessage: context.alertMessage,
-          focus: context.focus,
-          scroll: context.scroll,
-          source: context.source || this.id || null,
-          target: context.target || this.id || null,
-        };
-        this.dispatchEvent(new CustomEvent("scope:after-swap", eventDetail(detail)));
-        focusAfterSwap(this, detail);
-        if (restoreScroll) restoreScroll();
-        else scrollScope(this, scrollMode, detail.url);
-        announce(this, detail);
-        return detail;
+      if (!target) {
+        throw new Error(
+          `scope-swap target not found: "${swapSelector}" in scope ${this.id || "(anonymous)"}`,
+        );
       }
+      if (fragment.childElementCount !== 1) {
+        throw new Error(
+          `scope-swap response must contain exactly one root element for "${swapSelector}" in scope ${this.id || "(anonymous)"}, got ${fragment.childElementCount}`,
+        );
+      }
+      const incoming = fragment.firstElementChild;
+      this.#assertOperation(operationId, context.signal);
+      await assets.loadRegisteredComponents(incoming, context.signal);
+      this.#assertOperation(operationId, context.signal);
+      // scope-swap leaves everything outside the swapped child untouched,
+      // including focus: when the focused element survives the swap, the
+      // scope focus policy is skipped. Only a removed focus target falls
+      // back to the normal policy.
+      const active = document.activeElement;
+      const preserveFocus =
+        active instanceof Element &&
+        active !== document.body &&
+        this.contains(active) &&
+        !target.contains(active);
+      const prevHeight = this.clientHeight;
+      this.style.minHeight = `${prevHeight}px`;
+      target.replaceWith(incoming);
+      setTimeout(() => {
+        this.style.minHeight = "";
+      }, 0);
+      const detail = {
+        ok: response.ok,
+        rendered: true,
+        status,
+        url: response.url || context.requestUrl,
+        userInitiated: context.userInitiated,
+        revalidating: context.revalidating,
+        statusMessage: context.statusMessage,
+        alertMessage: context.alertMessage,
+        focus: context.focus,
+        scroll: context.scroll,
+        source: context.source || this.id || null,
+        target: context.target || this.id || null,
+      };
+      this.dispatchEvent(new CustomEvent("scope:after-swap", eventDetail(detail)));
+      if (!preserveFocus) focusAfterSwap(this, detail);
+      if (restoreScroll) restoreScroll();
+      else scrollScope(this, scrollMode, detail.url);
+      announce(this, detail);
+      return detail;
     }
 
     const serverSnapshots = snapshotKeptElements(this, fragment);

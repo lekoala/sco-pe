@@ -1,7 +1,11 @@
 # Multiple scope updates per response
 
-Status: target for v0.2, specified but not implemented. `Scope-Target` currently
-routes a whole response to a single other scope.
+Status: deferred beyond v0.2.
+
+Implement only when a representative application flow requires one response to
+update multiple independent scopes and `Scope-Target` would otherwise require
+an additional request or application-specific glue. `Scope-Target` currently
+routes a whole response to a single other scope, which remains the v0.2 model.
 
 ## Motivation
 
