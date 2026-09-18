@@ -177,7 +177,7 @@ htmx 4 introduced `<hx-partial>` for explicit multi-target responses:
 </hx-partial>
 ```
 
-`sco-pe` has a closely related multi-target design in `docs/multi-target.md`, but with different ownership rules: updates target named scopes, while the source scope continues to own the request and history entry.
+`sco-pe` has a closely related multi-target design in [multi-target.md](multi-target.md), but with different ownership rules: updates target named scopes, while the source scope continues to own the request and history entry.
 
 The similarity is useful. It validates the underlying server-rendered pattern without requiring sco-pe to adopt the rest of htmx's element-level behavior language.
 

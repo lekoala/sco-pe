@@ -21,16 +21,26 @@ The public surface is intentionally small: behavior is configured on `<sco-pe>`,
 
 ## Basic usage
 
+`sco-pe` has one simple idea:
+
+> **Put normal server-rendered navigation inside a scope.**
+
 ```html
 <script type="module" src="/assets/sco-pe.js"></script>
 
 <div id="scope-status" role="status" aria-live="polite" aria-atomic="true"></div>
 <div id="scope-alert" role="alert" aria-atomic="true"></div>
 
-<sco-pe id="main" src="/admin/users" history="true">
-  <!-- Optional server-rendered fallback content. -->
+<sco-pe id="main" history="true" select="sco-pe#main">
+  <!-- your existing server-rendered page -->
 </sco-pe>
 ```
+
+**Your links and forms already work.** Links are still links, forms are still
+forms, and your routes still return HTML. With JavaScript enabled, sco-pe
+fetches those navigations and renders the response back into the scope instead
+of replacing the whole page. Without JavaScript, the browser navigates
+normally.
 
 Inside the scope, regular links and forms are enough:
 
@@ -55,6 +65,52 @@ For non-GET actions, prefer normal forms over JavaScript-only button actions:
   <button>Archive</button>
 </form>
 ```
+
+### Three levels of integration
+
+**Level 1 — zero server integration.** Your URLs already render full pages.
+Put the same `<sco-pe id="main">` in your layout with `select="sco-pe#main"`,
+and the main navigation becomes partial without changing any controller:
+sco-pe extracts the scope from the full document.
+
+**Level 2 — tiny server integration.** When rendering the layout twice costs
+too much, recognize the request header and return the fragment directly:
+
+```txt
+normal request      → full HTML page
+Scope-Request: true → HTML suitable for the scope
+```
+
+Both representations carry the same logical content; the fragment is a
+transport optimization. Alternatively, keep returning full pages and let
+`select` extract the scope.
+
+**Level 3 — application polish.** Only then reach for `422` validation
+rendering, `Scope-Status`, autosubmit filters, `Scope-Target` routing or
+`Scope-Script` asset loading. These are enhancements to the basic model, not
+prerequisites — see [the server contract](docs/server-contract.md).
+
+sco-pe does not introduce a new way to write your application; it improves
+navigation for the server-rendered application you already have.
+
+### How sco-pe differs
+
+sco-pe owns **navigation inside a region**. It deliberately does not own
+per-element interaction behavior or client-side state:
+
+- **htmx** puts the interaction language on each element (`hx-get`,
+  `hx-target`, `hx-swap`, …). sco-pe keeps descendants as plain HTML and puts
+  the policy on the scope boundary instead. See
+  [sco-pe and htmx 4](docs/vs-htmx-4.md).
+- **Stimulus** attaches JavaScript behavior objects to DOM elements; **Turbo**
+  is the closer comparison as a navigation layer. sco-pe pairs the same way
+  with behavior layers: server navigation here, application behavior there.
+  See [sco-pe and Stimulus](docs/vs-stimulus.md).
+- Richer widgets belong in custom elements or external modules loaded through
+  `Scope-Script`, not in the navigation runtime.
+
+The useful question is not which library has more features, but which
+interaction language you want your templates to speak.
 
 ## Attributes on `<sco-pe>`
 
@@ -437,12 +493,28 @@ When `Scope-Target` routes a response to another scope, the source owns the requ
 
 History state stores one owning scope per browser entry. In a multi-scope admin layout, enable navigational history on the main content scope and update secondary scopes through `Scope-Target`.
 
+## Documentation
+
+- [Server contract](docs/server-contract.md) — request negotiation, dual
+  representation, `Scope-*` headers, `422` / `204` / `205` / `304`,
+  `Vary: Scope-Request`, CSRF, and a framework-neutral PSR-7 example.
+- [Security notes](docs/security.md) — trust model, CSP, Trusted Types status.
+- [Upgrade notes](docs/upgrade-notes.md) — migration from 0.1 and the late
+  0.2 stabilizations.
+- [Multi-target design](docs/multi-target.md) — deferred beyond v0.2; the
+  conditions under which it would be implemented.
+- [sco-pe and htmx 4](docs/vs-htmx-4.md) — locality of navigation vs locality
+  of behavior.
+- [sco-pe and Stimulus](docs/vs-stimulus.md) — navigation layer vs behavior
+  layer, and how the two combine.
+- [Demo guide](docs/demos.md) — what each page under `/static` demonstrates.
+
 ## Tests
 
 ```sh
 bun install
 bunx playwright install chromium
-bun test
+bunx playwright test
 ```
 
 The test suite covers initial `src` loading, link navigation, GET forms, 422 validation errors, live status/alert updates, focus management, same-document hash focus, scroll policies, non-HTML response refusal, native submitter overrides, external submit buttons, `Scope-Script` custom-element upgrades, autosubmit, keep, transitions, and revalidation state.
