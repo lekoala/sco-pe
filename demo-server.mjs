@@ -54,6 +54,8 @@ async function readBody(req) {
 const appointments = new Map([
   ["123", { id: "123", title: "Annual checkup", date: "2026-10-02", time: "09:30" }],
   ["124", { id: "124", title: "Cleaning", date: "2026-10-03", time: "14:00" }],
+  // One record per browser project so parallel CI workers never share mutable state.
+  ["125", { id: "125", title: "Follow-up", date: "2026-10-04", time: "11:00" }],
 ]);
 // Demo-only in-memory drafts, keyed by appointment. Real apps should tie drafts
 // to a user/session and store them outside the server process.
