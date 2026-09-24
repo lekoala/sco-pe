@@ -9,7 +9,8 @@ var DEFAULT_HEADERS = Object.freeze({
   script: "Scope-Script",
   style: "Scope-Style",
   select: "Scope-Select",
-  target: "Scope-Target"
+  target: "Scope-Target",
+  event: "Scope-Event"
 });
 function defaultRenderableResponse(response) {
   const contentType = response.headers.get("content-type") || "";
@@ -1009,6 +1010,13 @@ function sameHistoryURL(a, b) {
 function eventDetail(extra = {}) {
   return { bubbles: true, cancelable: false, detail: extra };
 }
+function emitScopeEvents(scope, events, detail = {}) {
+  if (!events?.length)
+    return;
+  for (const name of events) {
+    scope.dispatchEvent(new CustomEvent("scope:event", eventDetail({ ...detail, name })));
+  }
+}
 function holdMinHeight(scope) {
   const value = scope.style.getPropertyValue("min-height");
   const priority = scope.style.getPropertyPriority("min-height");
@@ -1446,6 +1454,14 @@ class Scope extends HTMLElement {
     if (headerDetail.title)
       document.title = headerDetail.title;
     if (headerDetail.location) {
+      if (headerDetail.events?.length) {
+        emitScopeEvents(this, headerDetail.events, {
+          source: context.source || this.id || null,
+          target: this.id || null,
+          status,
+          url: context.requestUrl
+        });
+      }
       const redirected = await this.loadURL(headerDetail.location, { method: "GET" }, {
         ...context,
         statusMessage: headerDetail.statusMessage,
@@ -1455,7 +1471,7 @@ class Scope extends HTMLElement {
     }
     if (status === 204 || status === 205 || status === 304) {
       announce(this, headerDetail);
-      return {
+      const noSwapDetail = {
         ok,
         rendered: false,
         unchanged: status !== 205,
@@ -1465,8 +1481,16 @@ class Scope extends HTMLElement {
         userInitiated: context.userInitiated,
         revalidating: context.revalidating,
         statusMessage: headerDetail.statusMessage,
-        alertMessage: headerDetail.alertMessage
+        alertMessage: headerDetail.alertMessage,
+        events: headerDetail.events
       };
+      emitScopeEvents(this, headerDetail.events, {
+        source: context.source || this.id || null,
+        target: this.id || null,
+        status,
+        url: noSwapDetail.url
+      });
+      return noSwapDetail;
     }
     if (!config.renderableResponse(response)) {
       announce(this, headerDetail);
@@ -1606,6 +1630,7 @@ class Scope extends HTMLElement {
         revalidating: context.revalidating,
         statusMessage: context.statusMessage,
         alertMessage: context.alertMessage,
+        events: context.events || [],
         focus: context.focus,
         scroll: context.scroll,
         source: context.source || this.id || null,
@@ -1619,6 +1644,12 @@ class Scope extends HTMLElement {
       else
         scrollScope(this, scrollMode, detail.url);
       announce(this, detail);
+      emitScopeEvents(this, context.events, {
+        source: detail.source,
+        target: detail.target,
+        status,
+        url: detail.url
+      });
       return detail;
     }
     const serverSnapshots = snapshotKeptElements(this, fragment);
@@ -1651,6 +1682,7 @@ class Scope extends HTMLElement {
       revalidating: context.revalidating,
       statusMessage: context.statusMessage,
       alertMessage: context.alertMessage,
+      events: context.events || [],
       focus: context.focus,
       scroll: context.scroll,
       source: context.source || this.id || null,
@@ -1663,6 +1695,12 @@ class Scope extends HTMLElement {
     else
       scrollScope(this, scrollMode, detail.url);
     announce(this, detail);
+    emitScopeEvents(this, context.events, {
+      source: detail.source,
+      target: detail.target,
+      status,
+      url: detail.url
+    });
     return detail;
   }
   readHeaders(response) {
@@ -1677,7 +1715,8 @@ class Scope extends HTMLElement {
       scripts: splitHeader(response.headers.get(headers.script)),
       styles: splitHeader(response.headers.get(headers.style)),
       select: response.headers.get(headers.select),
-      target: response.headers.get(headers.target)
+      target: response.headers.get(headers.target),
+      events: splitHeader(response.headers.get(headers.event))
     };
   }
   selectReplacement(parsed, select = null) {
@@ -1799,5 +1838,5 @@ export {
   sco_pe_default as default
 };
 
-//# debugId=B28585838FEE2DED64756E2164756E21
+//# debugId=BC10AFEAD519194064756E2164756E21
 //# sourceMappingURL=sco-pe.js.map

@@ -11,6 +11,7 @@ export const DEFAULT_HEADERS = Object.freeze({
   style: "Scope-Style",
   select: "Scope-Select",
   target: "Scope-Target",
+  event: "Scope-Event",
 });
 
 export function defaultRenderableResponse(response) {

@@ -9,14 +9,20 @@ const chromiumUse = {
 export default defineConfig({
   testDir: "./tests",
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
-  webServer: {
-    command: "node tests/fixtures/server.mjs",
-    url: "http://127.0.0.1:4173",
-    reuseExistingServer: !process.env.CI,
-  },
-  use: {
-    baseURL: "http://127.0.0.1:4173",
-  },
+  webServer: [
+    {
+      command: "node tests/fixtures/server.mjs",
+      env: { PORT: "0" },
+      wait: { stdout: /Fixture server listening on http:\/\/127\.0\.0\.1:(?<SCOPE_TEST_PORT>\d+)/ },
+      reuseExistingServer: false,
+    },
+    {
+      command: "node demo-server.mjs",
+      env: { PORT: "0" },
+      wait: { stdout: /Demo server : http:\/\/127\.0\.0\.1:(?<SCOPE_DEMO_PORT>\d+)/ },
+      reuseExistingServer: false,
+    },
+  ],
   projects: process.env.CI
     ? [
         { name: "chromium", use: chromiumUse },

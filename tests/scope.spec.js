@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures/test.js";
 
 test("loads initial src content", async ({ page }) => {
   await page.goto("/");
@@ -1033,10 +1033,11 @@ test("resolves fragment relative URLs against the response URL", async ({ page }
   await expect(page.locator("sco-pe#main > h1")).toHaveText("Relative next");
 
   const src = await page.locator("#probe").getAttribute("src");
-  expect(src).toBe("http://127.0.0.1:4173/relative-url/images/photo.jpg");
+  const origin = new URL(page.url()).origin;
+  expect(src).toBe(`${origin}/relative-url/images/photo.jpg`);
   const srcset = await page.locator("#probe-set").getAttribute("srcset");
   expect(srcset).toBe(
-    "http://127.0.0.1:4173/relative-url/small.png 480w, http://127.0.0.1:4173/relative-url/large.png 800w",
+    `${origin}/relative-url/small.png 480w, ${origin}/relative-url/large.png 800w`,
   );
   // Unaffected values keep their original text.
   await expect(page.locator("#probe-abs")).toHaveAttribute("src", "/static/x.png");

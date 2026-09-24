@@ -4,7 +4,7 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(fileURLToPath(new URL("../../", import.meta.url)));
-const port = Number(process.env.PORT || 4173);
+const port = process.env.PORT === undefined ? 4173 : Number(process.env.PORT);
 
 const types = {
   ".html": "text/html; charset=utf-8",
@@ -1555,6 +1555,43 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/event") {
+    send(
+      res,
+      200,
+      page(
+        scope(
+          "Event",
+          '<a id="event-render-link" href="/event-render">Render</a> <a id="event-204-link" href="/event-204">Save</a> <a id="event-multi-link" href="/event-multi">Multi</a>',
+        ),
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/event-render") {
+    send(res, 200, scope("Event render"), {
+      "Scope-Event": "demo.ping",
+      "Scope-Status": "Ping announced",
+    });
+    return;
+  }
+
+  if (url.pathname === "/event-204") {
+    send(res, 204, "", {
+      "Scope-Event": "demo.saved",
+      "Scope-Status": "Saved without swapping",
+    });
+    return;
+  }
+
+  if (url.pathname === "/event-multi") {
+    send(res, 200, scope("Event multi"), {
+      "Scope-Event": "alpha.one, beta.two",
+    });
+    return;
+  }
+
   const filePath = normalize(join(root, url.pathname));
   if (filePath.startsWith(root)) {
     try {
@@ -1571,5 +1608,5 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(port, "127.0.0.1", () => {
-  console.log(`Fixture server listening on http://127.0.0.1:${port}`);
+  console.log(`Fixture server listening on http://127.0.0.1:${server.address().port}`);
 });

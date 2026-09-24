@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Adds the `Scope-Event` response header: a comma-separated list of domain
+  signal names dispatched as one bubbling `scope:event` per name
+  (`detail.name`), including on `204`/`205`/`304` responses without a swap.
+  Rendered responses also expose the list as `detail.events`.
+- Adds the `static/server-dialog.html` demo: Actual CSS (CDN) owns the native
+  `<dialog>`, sco-pe owns the server-driven content, and a `server-dialog`
+  enhancement opens regular links in a persistent modal host.
 
 ## 0.2.0
 

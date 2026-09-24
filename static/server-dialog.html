@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>sco-pe — server dialog demo</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/actual-css@0.9.2/dist/actual.full.min.css">
+  <link rel="stylesheet" href="demo.css">
+  <style>
+    #server-dialog { inline-size: min(32rem, 90vw); }
+    /* demo.css styles every sco-pe as a card; inside the dialog the modal
+       surface already provides the frame. */
+    #server-dialog sco-pe { border: 0; padding: 0; }
+    /* demo.css is unlayered, so its `form { display: flex }` beats Actual's
+       layered `.stack`; restore the grid inside the dialog scope. */
+    #dialog-scope form.stack { display: grid; gap: 1rem; }
+  </style>
+  <script type="module" src="../sco-pe.js"></script>
+</head>
+<body>
+  <nav><a href="/static/index.html">All demos</a></nav>
+  <h1>Server-driven dialog</h1>
+  <p>
+    Each <em>Edit</em> link below is a regular link to a regular server page.
+    Without JavaScript it navigates normally; with JavaScript the destination
+    loads inside the dialog instead. Forms stay native: invalid input
+    re-renders with <code>422</code>, the review step arrives through
+    <code>Scope-Location</code>, and the final save answers
+    <code>204 + Scope-Status + Scope-Event</code>, which closes the dialog and
+    refreshes the list.
+  </p>
+  <div id="scope-status" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div id="scope-alert" role="alert" aria-atomic="true"></div>
+  <div class="layout">
+    <sco-pe id="main" src="/demo/appointments" history="true"></sco-pe>
+    <aside aria-label="Calendar">
+      <h2>Calendar</h2>
+      <p id="calendar-status" role="status">Up to date.</p>
+    </aside>
+  </div>
+  <p><a href="/demo/appointments">Open the appointment list as a full page</a> (works without JavaScript).</p>
+
+  <dialog id="server-dialog" class="modal" closedby="any" data-dialog-dismissible aria-label="Appointment dialog">
+    <button type="button" class="close dialog-close" commandfor="server-dialog" command="request-close" aria-label="Close dialog"></button>
+    <div class="stack">
+      <sco-pe id="dialog-scope" history="false" focus="first-error" scroll="none"></sco-pe>
+    </div>
+  </dialog>
+
+  <script type="module">
+    import { closeDialog, openDialog } from "https://cdn.jsdelivr.net/npm/actual-css@0.9.2/src/js/dialog.js";
+    import { registerEnhancement } from "https://cdn.jsdelivr.net/npm/actual-css@0.9.2/src/js/enhance.js";
+
+    const dialog = document.getElementById("server-dialog");
+    const scope = document.getElementById("dialog-scope");
+    const main = document.getElementById("main");
+
+    // One behavior: links carrying this token open their destination in the
+    // shared dialog instead of navigating. The dialog owns the <dialog>
+    // lifecycle, sco-pe owns the transport and the swap.
+    registerEnhancement("server-dialog", (link) => {
+      const onClick = (event) => {
+        if (
+          event.button !== 0 ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.shiftKey ||
+          event.altKey
+        ) {
+          return;
+        }
+        event.preventDefault();
+        const href = link.getAttribute("href");
+        // Scope-Location can show a new step without changing src. A Back link
+        // to the original URL must reload even when src already has that value.
+        if (scope.src === href) scope.loadURL(href, { method: "GET" }, { userInitiated: true });
+        else scope.src = href;
+        if (!dialog.open) openDialog(dialog, link);
+      };
+      link.addEventListener("click", onClick);
+      return () => link.removeEventListener("click", onClick);
+    });
+
+    // A 204 in the dialog scope means "done": close and refresh the list.
+    // The status message is mirrored to #scope-status by sco-pe itself.
+    scope.addEventListener("scope:load", (event) => {
+      if (event.detail.status === 204) {
+        closeDialog(dialog);
+        main?.revalidate();
+      }
+    });
+
+    // Domain signal from the server: decide here what it means for this page.
+    document.addEventListener("scope:event", (event) => {
+      if (event.detail.name !== "appointment.changed") return;
+      const status = document.getElementById("calendar-status");
+      if (status) status.textContent = `Refreshed at ${new Date().toLocaleTimeString()}.`;
+    });
+
+    // Drop dialog state on close so reopening the same link reloads it.
+    dialog.addEventListener("close", () => {
+      scope.removeAttribute("src");
+      scope.innerHTML = "";
+    });
+  </script>
+</body>
+</html>

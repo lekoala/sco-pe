@@ -377,6 +377,7 @@ Scope-Script: /assets/admin/user-form.js
 Scope-Style: /assets/admin/user-form.css
 Scope-Select: sco-pe#main
 Scope-Target: sidebar
+Scope-Event: appointment.changed, patient.timeline.changed
 ```
 
 `Scope-Script` loads external ES modules with dynamic `import()`. Modules are deduped by absolute URL. Inline scripts from fetched HTML are ignored by design.
@@ -461,6 +462,11 @@ document.addEventListener("scope:before-swap", (event) => {
 document.addEventListener("scope:after-swap", (event) => {});
 document.addEventListener("scope:load", (event) => {});
 document.addEventListener("scope:error", (event) => {});
+document.addEventListener("scope:event", (event) => {
+  // event.detail.name is one signal from Scope-Event, e.g. "appointment.changed".
+  // The server announces domain facts; the client decides what to do (calendar
+  // refetch, badge update, scope.revalidate()).
+});
 document.addEventListener("scope:status", (event) => {});
 document.addEventListener("scope:alert", (event) => {});
 document.addEventListener("scope:transition-start", (event) => {});

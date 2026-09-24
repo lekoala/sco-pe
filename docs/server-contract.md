@@ -49,6 +49,7 @@ Scope-Script: /assets/admin/user-form.js
 Scope-Style: /assets/admin/user-form.css
 Scope-Select: #main-content
 Scope-Target: sidebar
+Scope-Event: appointment.changed, patient.timeline.changed
 ```
 
 - `Scope-Status` / `Scope-Alert` mirror into the persistent `#scope-status` /
@@ -67,6 +68,26 @@ Scope-Target: sidebar
   owning the request, cancellation and history entry; the target owns the
   swap, focus and announcement. Both scopes emit `scope:load` with `source`
   and `target` in the detail.
+
+## Domain events with Scope-Event
+
+`Scope-Event` carries a comma-separated list of domain signal names, e.g.
+`appointment.changed`. sco-pe dispatches one bubbling `scope:event` per name
+with `detail.name`, on the scope that owns the swap (or on the requesting
+scope for `204`/`205`/`304` responses without a swap):
+
+```js
+document.addEventListener("scope:event", (event) => {
+  if (event.detail.name === "appointment.changed") {
+    calendar.refetch();
+  }
+});
+```
+
+Keep it to signal names, no payload and no code to execute. The server
+announces that something meaningful happened; the client decides what to do
+about it. Events are also exposed as `detail.events` on `scope:load` /
+`scope:after-swap` results.
 
 ## Validation with 422
 

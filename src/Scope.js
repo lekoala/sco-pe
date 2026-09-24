@@ -216,6 +216,16 @@ function eventDetail(extra = {}) {
   return { bubbles: true, cancelable: false, detail: extra };
 }
 
+// `Scope-Event: order.paid, sidebar.changed` announces domain signals without
+// shipping code: one bubbling `scope:event` per name, the application decides
+// what each signal means (calendar refetch, badge update, ...).
+function emitScopeEvents(scope, events, detail = {}) {
+  if (!events?.length) return;
+  for (const name of events) {
+    scope.dispatchEvent(new CustomEvent("scope:event", eventDetail({ ...detail, name })));
+  }
+}
+
 // Hold layout during a swap without destroying an author-provided min-height.
 function holdMinHeight(scope) {
   const value = scope.style.getPropertyValue("min-height");
@@ -746,6 +756,14 @@ export default class Scope extends HTMLElement {
     if (headerDetail.title) document.title = headerDetail.title;
 
     if (headerDetail.location) {
+      if (headerDetail.events?.length) {
+        emitScopeEvents(this, headerDetail.events, {
+          source: context.source || this.id || null,
+          target: this.id || null,
+          status,
+          url: context.requestUrl,
+        });
+      }
       const redirected = await this.loadURL(
         headerDetail.location,
         { method: "GET" },
@@ -760,7 +778,7 @@ export default class Scope extends HTMLElement {
 
     if (status === 204 || status === 205 || status === 304) {
       announce(this, headerDetail);
-      return {
+      const noSwapDetail = {
         ok,
         rendered: false,
         unchanged: status !== 205,
@@ -771,7 +789,15 @@ export default class Scope extends HTMLElement {
         revalidating: context.revalidating,
         statusMessage: headerDetail.statusMessage,
         alertMessage: headerDetail.alertMessage,
+        events: headerDetail.events,
       };
+      emitScopeEvents(this, headerDetail.events, {
+        source: context.source || this.id || null,
+        target: this.id || null,
+        status,
+        url: noSwapDetail.url,
+      });
+      return noSwapDetail;
     }
 
     if (!config.renderableResponse(response)) {
@@ -950,6 +976,7 @@ export default class Scope extends HTMLElement {
         revalidating: context.revalidating,
         statusMessage: context.statusMessage,
         alertMessage: context.alertMessage,
+        events: context.events || [],
         focus: context.focus,
         scroll: context.scroll,
         source: context.source || this.id || null,
@@ -960,6 +987,12 @@ export default class Scope extends HTMLElement {
       if (restoreScroll) restoreScroll();
       else scrollScope(this, scrollMode, detail.url);
       announce(this, detail);
+      emitScopeEvents(this, context.events, {
+        source: detail.source,
+        target: detail.target,
+        status,
+        url: detail.url,
+      });
       return detail;
     }
 
@@ -993,6 +1026,7 @@ export default class Scope extends HTMLElement {
       revalidating: context.revalidating,
       statusMessage: context.statusMessage,
       alertMessage: context.alertMessage,
+      events: context.events || [],
       focus: context.focus,
       scroll: context.scroll,
       source: context.source || this.id || null,
@@ -1004,6 +1038,12 @@ export default class Scope extends HTMLElement {
     if (restoreScroll) restoreScroll();
     else scrollScope(this, scrollMode, detail.url);
     announce(this, detail);
+    emitScopeEvents(this, context.events, {
+      source: detail.source,
+      target: detail.target,
+      status,
+      url: detail.url,
+    });
 
     return detail;
   }
@@ -1021,6 +1061,7 @@ export default class Scope extends HTMLElement {
       styles: splitHeader(response.headers.get(headers.style)),
       select: response.headers.get(headers.select),
       target: response.headers.get(headers.target),
+      events: splitHeader(response.headers.get(headers.event)),
     };
   }
 
