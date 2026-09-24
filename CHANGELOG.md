@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+
+## 0.2.1
+
 - Adds the `Scope-Event` response header: a comma-separated list of domain
   signal names dispatched as one bubbling `scope:event` per name
   (`detail.name`), including on `204`/`205`/`304` responses without a swap.
