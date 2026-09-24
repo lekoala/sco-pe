@@ -1837,6 +1837,3 @@ var sco_pe_default = Scope;
 export {
   sco_pe_default as default
 };
-
-//# debugId=BC10AFEAD519194064756E2164756E21
-//# sourceMappingURL=sco-pe.js.map

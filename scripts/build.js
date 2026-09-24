@@ -10,7 +10,7 @@ async function bundle(naming, minify) {
     naming,
     target: "browser",
     format: "esm",
-    sourcemap: "linked",
+    sourcemap: "none",
     minify,
   });
 
