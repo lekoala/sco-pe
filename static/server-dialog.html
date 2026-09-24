@@ -50,6 +50,7 @@
   <script type="module">
     import { closeDialog, openDialog } from "https://cdn.jsdelivr.net/npm/actual-css@0.9.2/src/js/dialog.js";
     import { registerEnhancement } from "https://cdn.jsdelivr.net/npm/actual-css@0.9.2/src/js/enhance.js";
+    import { hasExternalTarget, isExternalURL, isSameDocumentAnchor } from "../src/url.js";
 
     const dialog = document.getElementById("server-dialog");
     const scope = document.getElementById("dialog-scope");
@@ -69,8 +70,20 @@
         ) {
           return;
         }
-        event.preventDefault();
+        // The opt-in token narrows the candidates, not the rules: downloads,
+        // external targets/URLs and same-document anchors keep their native
+        // behavior — the same guards sco-pe applies to its own intercepts.
         const href = link.getAttribute("href");
+        if (
+          !href ||
+          link.hasAttribute("download") ||
+          hasExternalTarget(link) ||
+          isExternalURL(href) ||
+          isSameDocumentAnchor(href)
+        ) {
+          return;
+        }
+        event.preventDefault();
         // Scope-Location can show a new step without changing src. A Back link
         // to the original URL must reload even when src already has that value.
         if (scope.src === href) scope.loadURL(href, { method: "GET" }, { userInitiated: true });

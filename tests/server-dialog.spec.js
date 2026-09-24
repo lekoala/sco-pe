@@ -46,6 +46,29 @@ test("reviews a draft before confirming it in the dialog", async ({ page, demoUR
   await expect(page.locator("#main")).toContainText(title);
 });
 
+test("an opted-in link with a non-self target is not hijacked", async ({ page, demoURL }) => {
+  await page.goto(`${demoURL}/static/server-dialog.html`);
+  await expect(page.locator("#main li")).toHaveCount(3);
+
+  // The enhancement token opts a link in, it does not weaken the usual
+  // link rules: a target that is not _self keeps its native behavior.
+  await page.evaluate(() => {
+    const link = document.createElement("a");
+    link.href = "/demo/appointments";
+    link.target = "_blank";
+    link.setAttribute("data-enhance", "server-dialog");
+    link.textContent = "Open in a new tab";
+    document.getElementById("main").append(link);
+  });
+
+  const popup = page.waitForEvent("popup");
+  await page.getByRole("link", { name: "Open in a new tab" }).click();
+  await (await popup).waitForLoadState();
+
+  await expect(page.locator("#server-dialog")).not.toBeVisible();
+  await expect(page.locator("#dialog-scope")).toBeEmpty();
+});
+
 test("the full-page appointment flow works without JavaScript", async ({
   browser,
   demoURL,
