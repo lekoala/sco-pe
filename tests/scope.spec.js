@@ -965,6 +965,9 @@ test("admin flow filters through scope-swap without losing form focus", async ({
 
 test("admin flow paginates with browser back/forward", async ({ page }) => {
   await page.goto("/admin-flow");
+  await page.evaluate(() => {
+    window.__adminFlowDocument = true;
+  });
   await page.locator("#users-next").click();
   await expect(page.locator("#user-results > h2")).toHaveText("Users page 2");
   await expect(page).toHaveURL(/\/admin-flow\/users\?page=2$/);
@@ -972,10 +975,12 @@ test("admin flow paginates with browser back/forward", async ({ page }) => {
   await page.goBack();
   await expect(page).toHaveURL(/\/admin-flow$/);
   await expect(page.locator("#user-results > h2")).toHaveText("Users");
+  expect(await page.evaluate(() => window.__adminFlowDocument)).toBe(true);
 
   await page.goForward();
   await expect(page).toHaveURL(/\/admin-flow\/users\?page=2$/);
   await expect(page.locator("#user-results > h2")).toHaveText("Users page 2");
+  expect(await page.evaluate(() => window.__adminFlowDocument)).toBe(true);
 });
 
 test("admin flow validates POST with 422 and updates the sidebar through Scope-Target", async ({

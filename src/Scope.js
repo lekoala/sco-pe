@@ -1081,7 +1081,13 @@ export default class Scope extends HTMLElement {
 
     if (this.id) {
       const scope = root.querySelector?.(`sco-pe#${CSS.escape(this.id)}`);
-      if (scope) return { scope, html: scope.innerHTML };
+      if (scope) {
+        // A full document may contain the entire scope even when this scope
+        // swaps only one child. Keep the same single-root payload contract.
+        const swapSelector = this.getAttribute("scope-swap");
+        const swapTarget = swapSelector ? scope.querySelector(swapSelector) : null;
+        return { scope, html: swapTarget ? swapTarget.outerHTML : scope.innerHTML };
+      }
     }
 
     const firstScope = root.querySelector?.("sco-pe");
