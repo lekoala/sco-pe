@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixes a routed response (`target` attribute or `Scope-Target`) that arrived
+  late overwriting a navigation the user started on the target scope after the
+  routed request began. The latest user intent now owns the target.
+- Fixes back/forward for a scope with `target`: history entries record the
+  target, so restoration renders into the target scope instead of the source.
 
 ## 0.2.1
 

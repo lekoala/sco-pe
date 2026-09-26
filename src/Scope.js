@@ -256,6 +256,10 @@ function confirmationMessage(trigger, submitter = null) {
   return trigger.getAttribute?.("data-confirm") ?? null;
 }
 
+// Orders user intents across every scope. A routed response is stale when its
+// target received a newer user navigation after the routed request started.
+let intentClock = 0;
+
 export default class Scope extends HTMLElement {
   #initialized = false;
   #initializing = false;
@@ -265,6 +269,7 @@ export default class Scope extends HTMLElement {
   #requestSequence = 0;
   #operationSequence = 0;
   #activeOperation = null;
+  #lastIntentAt = 0;
   #pendingRequest = null;
   #autosubmitTimer = null;
 
@@ -574,7 +579,10 @@ export default class Scope extends HTMLElement {
       const result = await (pending || start());
 
       if (useHistory && result.ok && !result.aborted) {
-        this.updateHistory(result.url || url, select, { replace: Boolean(context.autosubmit) });
+        this.updateHistory(result.url || url, select, {
+          replace: Boolean(context.autosubmit),
+          target: result.target && result.target !== this.id ? result.target : null,
+        });
       }
 
       if (result.ok && !result.aborted) {
@@ -653,6 +661,9 @@ export default class Scope extends HTMLElement {
     // Only an accepted load supersedes the current request. A canceled
     // navigation must not abort work that is already in flight.
     const operationId = this.#claimOperation();
+    // Redirect continuations keep the start of the original intent.
+    const startedAt = context.startedAt ?? ++intentClock;
+    if (context.userInitiated) this.#lastIntentAt = Math.max(this.#lastIntentAt, startedAt);
     this.#abortController = controller;
     this.#activeRequestId = requestId;
 
@@ -671,6 +682,7 @@ export default class Scope extends HTMLElement {
         requestUrl: absoluteUrl,
         signal: options.signal,
         operationId,
+        startedAt,
       });
       if (this.#activeRequestId === requestId && !result.stale) {
         afterLoadStarted = true;
@@ -821,9 +833,28 @@ export default class Scope extends HTMLElement {
       const targetScope = document.getElementById(target);
       if (!(targetScope instanceof Scope)) throw new Error(`Target scope not found: ${target}`);
 
+      // The user navigated the target after this request started: that newer
+      // intent owns the target, even if its response already landed.
+      if (targetScope.#lastIntentAt > (context.startedAt ?? 0)) {
+        return {
+          ok: false,
+          rendered: false,
+          aborted: true,
+          stale: true,
+          status,
+          userInitiated: context.userInitiated,
+          revalidating: context.revalidating,
+          source: this.id || null,
+          target: targetScope.id,
+        };
+      }
+
       // A routed response becomes the newest content for the target scope and
       // therefore supersedes any request that target started for itself.
       const operationId = targetScope.#claimOperation();
+      if (context.userInitiated && context.startedAt) {
+        targetScope.#lastIntentAt = Math.max(targetScope.#lastIntentAt, context.startedAt);
+      }
       setBusy(targetScope, true);
       setRevalidating(targetScope, Boolean(context.revalidating));
       try {
@@ -1123,7 +1154,7 @@ export default class Scope extends HTMLElement {
     return true;
   }
 
-  updateHistory(url, select = null, { replace = false } = {}) {
+  updateHistory(url, select = null, { replace = false, target = null } = {}) {
     // `history.state.scope` is reserved by sco-pe. Every other property belongs
     // to the application and must survive scoped navigation.
     const previous = history.state && typeof history.state === "object" ? history.state : {};
@@ -1132,13 +1163,15 @@ export default class Scope extends HTMLElement {
       history.replaceState(
         {
           ...previous,
-          scope: { id: this.id, url: window.location.href, select: null },
+          // The entry being left is restored into the same target: that scope
+          // holds the content this navigation is about to replace.
+          scope: { id: this.id, url: window.location.href, select: null, target },
         },
         "",
         window.location.href,
       );
     }
-    const state = { ...previous, scope: { id: this.id, url, select } };
+    const state = { ...previous, scope: { id: this.id, url, select, target } };
     if (replace) history.replaceState(state, "", url);
     else history.pushState(state, "", url);
   }
@@ -1180,7 +1213,11 @@ window.addEventListener("popstate", (event) => {
   const scope = document.getElementById(state.id);
   if (scope instanceof Scope) {
     scope
-      .loadURL(state.url, { method: "GET" }, { userInitiated: true, select: state.select })
+      .loadURL(
+        state.url,
+        { method: "GET" },
+        { userInitiated: true, select: state.select, target: state.target || null },
+      )
       .then((result) => {
         // If the scoped restoration could not render anything, fall back to
         // the browser so the URL and document cannot remain out of sync.

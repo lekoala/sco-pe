@@ -1157,6 +1157,50 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/target-intent-race") {
+    send(
+      res,
+      200,
+      page(`
+        <sco-pe id="sidebar" target="main" history="false"><h2>Sidebar</h2><a id="intent-slow" href="/intent-slow">Slow</a></sco-pe>
+        <sco-pe id="main" history="false"><h1>Main</h1><a id="intent-fast" href="/intent-fast">Fast</a></sco-pe>
+      `),
+    );
+    return;
+  }
+
+  if (url.pathname === "/intent-slow") {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    send(res, 200, "<h1>Routed old</h1>");
+    return;
+  }
+
+  if (url.pathname === "/intent-fast") {
+    send(res, 200, "<h1>Main new</h1>");
+    return;
+  }
+
+  if (url.pathname === "/target-history") {
+    send(
+      res,
+      200,
+      page(`
+        <sco-pe id="sidebar" target="main" history="true"><h2>Sidebar</h2><a id="target-history-one" href="/target-history-one">One</a> <a id="target-history-two" href="/target-history-two">Two</a></sco-pe>
+        <sco-pe id="main" history="false"><h1>Main</h1></sco-pe>
+      `),
+    );
+    return;
+  }
+
+  if (url.pathname === "/target-history-one" || url.pathname === "/target-history-two") {
+    send(
+      res,
+      200,
+      `<h1>${url.pathname === "/target-history-one" ? "Target one" : "Target two"}</h1>`,
+    );
+    return;
+  }
+
   if (url.pathname === "/target-slow") {
     send(
       res,

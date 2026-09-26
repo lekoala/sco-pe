@@ -619,6 +619,45 @@ test("a routed response cannot overwrite a newer target navigation", async ({ pa
   await expect(page.locator("sco-pe#sidebar")).toHaveAttribute("aria-busy", "false");
 });
 
+test("a late routed response cannot overwrite a navigation started later on the target", async ({
+  page,
+}) => {
+  await page.goto("/target-intent-race");
+
+  await page.locator("#intent-slow").click();
+  await page.waitForTimeout(50);
+  await page.locator("#intent-fast").click();
+
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Main new");
+  await page.waitForTimeout(400);
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Main new");
+  await expect(page.locator("sco-pe#main")).toHaveAttribute("aria-busy", "false");
+});
+
+test("back/forward restores a targeted navigation into its target scope", async ({ page }) => {
+  await page.goto("/target-history");
+
+  await page.locator("#target-history-one").click();
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Target one");
+  await page.locator("#target-history-two").click();
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Target two");
+  await expect(page).toHaveURL(/\/target-history-two$/);
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/target-history-one$/);
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Target one");
+  await expect(page.locator("sco-pe#sidebar > h2")).toHaveText("Sidebar");
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/target-history$/);
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Main");
+  await expect(page.locator("sco-pe#sidebar > h2")).toHaveText("Sidebar");
+
+  await page.goForward();
+  await expect(page).toHaveURL(/\/target-history-one$/);
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Target one");
+});
+
 test("a canceled scope-swap leaves the DOM untouched", async ({ page }) => {
   await page.goto("/swap-cancel");
   await page.evaluate(() => {
