@@ -1192,6 +1192,23 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/target-reload") {
+    send(
+      res,
+      200,
+      page(`
+        <sco-pe id="sidebar" src="/target-reload-sidebar" target="main" history="true"><h2>Sidebar</h2><a id="target-reload-one" href="/target-history-one">One</a></sco-pe>
+        <sco-pe id="main" history="false"><h1>Main</h1></sco-pe>
+      `),
+    );
+    return;
+  }
+
+  if (url.pathname === "/target-reload-sidebar") {
+    send(res, 200, "<h2>Sidebar reloaded</h2>");
+    return;
+  }
+
   if (url.pathname === "/target-history-one" || url.pathname === "/target-history-two") {
     send(
       res,

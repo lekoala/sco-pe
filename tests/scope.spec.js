@@ -667,6 +667,18 @@ test("back/forward restores a targeted navigation into its target scope", async 
   await expect(page.locator("sco-pe#main > h1")).toHaveText("Target one");
 });
 
+test("reloading the source of a targeted navigation reloads its own src", async ({ page }) => {
+  await page.goto("/target-reload");
+  await page.locator("#target-reload-one").click();
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Target one");
+
+  // The history entry now describes main's content; the sidebar must not
+  // reload that URL into itself.
+  await page.evaluate(() => document.getElementById("sidebar").reload());
+  await expect(page.locator("sco-pe#sidebar > h2")).toHaveText("Sidebar reloaded");
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Target one");
+});
+
 test("requests carry Scope-Source and Scope-Target", async ({ page }) => {
   const seen = [];
   page.on("request", (request) => {
