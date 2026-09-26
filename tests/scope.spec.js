@@ -624,9 +624,18 @@ test("a late routed response cannot overwrite a navigation started later on the 
 }) => {
   await page.goto("/target-intent-race");
 
-  await page.locator("#intent-slow").click();
-  await page.waitForTimeout(50);
-  await page.locator("#intent-fast").click();
+  // Both clicks happen in the page so the second one reliably lands while the
+  // routed request (delayed 200ms by the server) is still in flight.
+  await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        document.getElementById("intent-slow").click();
+        setTimeout(() => {
+          document.getElementById("intent-fast").click();
+          resolve();
+        }, 50);
+      }),
+  );
 
   await expect(page.locator("sco-pe#main > h1")).toHaveText("Main new");
   await page.waitForTimeout(400);

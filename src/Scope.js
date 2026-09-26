@@ -918,6 +918,15 @@ export default class Scope extends HTMLElement {
   }
 
   async processParsedResponse(parsed, response, context = {}) {
+    const prepared = await this.#prepareSwap(parsed, response, context);
+    if (prepared.vetoed) return prepared.vetoed;
+    this.#commitSwap(prepared);
+    return this.#settleSwap(prepared);
+  }
+
+  // Prepare: resolve and validate everything the swap needs. This is the only
+  // phase that may await, and it leaves the DOM untouched.
+  async #prepareSwap(parsed, response, context) {
     const operationId = context.operationId ?? this.#activeOperation;
     this.#assertOperation(operationId, context.signal);
     const replacement = this.selectReplacement(parsed, context.select);
@@ -939,12 +948,14 @@ export default class Scope extends HTMLElement {
     this.dispatchEvent(beforeSwap);
     if (beforeSwap.defaultPrevented) {
       return {
-        ok: response.ok,
-        rendered: false,
-        aborted: true,
-        status,
-        userInitiated: context.userInitiated,
-        revalidating: context.revalidating,
+        vetoed: {
+          ok: response.ok,
+          rendered: false,
+          aborted: true,
+          status,
+          userInitiated: context.userInitiated,
+          revalidating: context.revalidating,
+        },
       };
     }
     this.#assertOperation(operationId, context.signal);
@@ -955,12 +966,13 @@ export default class Scope extends HTMLElement {
       "top",
       "scroll",
     );
-    const restoreScroll = scrollMode === "keep" ? saveScrollPositions(this) : null;
 
     const fragment = createReplacementFragment(this, replacement.html);
     // Insertion-time resources must resolve against the response URL, not
     // the pre-navigation document base (history updates after the swap).
     resolveFragmentURLs(fragment, response.url || context.requestUrl);
+
+    const prepared = { parsed, response, context, operationId, replacement, scrollMode };
 
     const swapSelector = this.getAttribute("scope-swap");
     if (swapSelector) {
@@ -968,8 +980,8 @@ export default class Scope extends HTMLElement {
       // swap. A missing local target or an ambiguous payload is an explicit
       // error so a stale selector or a wrong server representation surfaces
       // immediately instead of replacing unrelated content.
-      const target = this.querySelector(swapSelector);
-      if (!target) {
+      const swapTarget = this.querySelector(swapSelector);
+      if (!swapTarget) {
         throw new Error(
           `scope-swap target not found: "${swapSelector}" in scope ${this.id || "(anonymous)"}`,
         );
@@ -982,61 +994,47 @@ export default class Scope extends HTMLElement {
       const incoming = fragment.firstElementChild;
       this.#assertOperation(operationId, context.signal);
       await assets.loadRegisteredComponents(incoming, context.signal);
-      this.#assertOperation(operationId, context.signal);
+      return { ...prepared, swapTarget, incoming };
+    }
+
+    const serverSnapshots = snapshotKeptElements(this, fragment);
+    await assets.loadRegisteredComponents(fragment, context.signal);
+    return { ...prepared, fragment, serverSnapshots };
+  }
+
+  // Commit: mutate the DOM. Synchronous by contract, so several commits in a
+  // row are never interleaved with a render or another operation.
+  #commitSwap(prepared) {
+    const { parsed, context, operationId, replacement, scrollMode, swapTarget } = prepared;
+    this.#assertOperation(operationId, context.signal);
+    prepared.restoreScroll = scrollMode === "keep" ? saveScrollPositions(this) : null;
+
+    if (swapTarget) {
       // scope-swap leaves everything outside the swapped child untouched,
       // including focus: when the focused element survives the swap, the
       // scope focus policy is skipped. Only a removed focus target falls
       // back to the normal policy.
       const active = document.activeElement;
-      const preserveFocus =
+      prepared.preserveFocus =
         active instanceof Element &&
         active !== document.body &&
         this.contains(active) &&
-        !target.contains(active);
+        !swapTarget.contains(active);
       const releaseHeight = holdMinHeight(this);
-      target.replaceWith(incoming);
+      swapTarget.replaceWith(prepared.incoming);
       setTimeout(() => {
         releaseHeight();
       }, 0);
-      const detail = {
-        ok: response.ok,
-        rendered: true,
-        status,
-        url: response.url || context.requestUrl,
-        userInitiated: context.userInitiated,
-        revalidating: context.revalidating,
-        statusMessage: context.statusMessage,
-        alertMessage: context.alertMessage,
-        events: context.events || [],
-        focus: context.focus,
-        scroll: context.scroll,
-        source: context.source || this.id || null,
-        target: context.target || this.id || null,
-      };
-      this.dispatchEvent(new CustomEvent("scope:after-swap", eventDetail(detail)));
-      if (!preserveFocus) focusAfterSwap(this, detail);
-      if (restoreScroll) restoreScroll();
-      else scrollScope(this, scrollMode, detail.url);
-      announce(this, detail);
-      emitScopeEvents(this, context.events, {
-        source: detail.source,
-        target: detail.target,
-        status,
-        url: detail.url,
-      });
-      return detail;
+      return;
     }
 
-    const serverSnapshots = snapshotKeptElements(this, fragment);
-    await assets.loadRegisteredComponents(fragment, context.signal);
-    this.#assertOperation(operationId, context.signal);
     if (replacement.scope) copyScopeAttributes(this, replacement.scope);
     const releaseHeight = holdMinHeight(this);
-    replaceChildren(this, fragment, swapKeptChildren);
+    replaceChildren(this, prepared.fragment, swapKeptChildren);
     setTimeout(() => {
       releaseHeight();
     }, 0);
-    rememberServerSnapshots(this, serverSnapshots);
+    rememberServerSnapshots(this, prepared.serverSnapshots);
     rememberKeptElements(this);
 
     if (parsed.isFullDocument && parsed.root instanceof Document) {
@@ -1047,7 +1045,13 @@ export default class Scope extends HTMLElement {
         copyBodyAttributes(parsed.root.body);
       }
     }
+  }
 
+  // Settle: everything observable after the DOM changed (events, focus,
+  // scroll, announcements).
+  #settleSwap(prepared) {
+    const { response, context, scrollMode, restoreScroll } = prepared;
+    const status = response.status;
     const detail = {
       ok: response.ok,
       rendered: true,
@@ -1065,7 +1069,7 @@ export default class Scope extends HTMLElement {
     };
 
     this.dispatchEvent(new CustomEvent("scope:after-swap", eventDetail(detail)));
-    focusAfterSwap(this, detail);
+    if (!prepared.preserveFocus) focusAfterSwap(this, detail);
     if (restoreScroll) restoreScroll();
     else scrollScope(this, scrollMode, detail.url);
     announce(this, detail);
