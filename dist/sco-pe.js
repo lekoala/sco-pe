@@ -861,11 +861,22 @@ function parseBool(value, fallback = false) {
     return fallback;
   return ["1", "true", true, 1, "yes"].includes(value);
 }
-function mergeRequestHeaders(base, override) {
-  const headers = new Headers(base || {});
-  new Headers(override || {}).forEach((value, name) => {
-    headers.set(name, value);
-  });
+function mergeRequestHeaders(...sources) {
+  const headers = new Headers;
+  for (const source of sources) {
+    new Headers(source || {}).forEach((value, name) => {
+      headers.set(name, value);
+    });
+  }
+  return headers;
+}
+function scopeRequestHeaders(scope, target) {
+  const headers = {};
+  const destination = target && target !== "_self" ? target : scope.id;
+  if (scope.id)
+    headers["Scope-Source"] = scope.id;
+  if (destination)
+    headers["Scope-Target"] = destination;
   return headers;
 }
 function combineSignals(controller, ...externalSignals) {
@@ -1046,6 +1057,7 @@ function confirmationMessage(trigger, submitter = null) {
     return submitter.getAttribute("data-confirm");
   return trigger.getAttribute?.("data-confirm") ?? null;
 }
+var intentClock = 0;
 
 class Scope extends HTMLElement {
   #initialized = false;
@@ -1056,6 +1068,7 @@ class Scope extends HTMLElement {
   #requestSequence = 0;
   #operationSequence = 0;
   #activeOperation = null;
+  #lastIntentAt = 0;
   #pendingRequest = null;
   #autosubmitTimer = null;
   static configure(next) {
@@ -1257,7 +1270,7 @@ class Scope extends HTMLElement {
   }
   reload(options = {}) {
     const state = history.state?.scope;
-    const currentHistoryURL = state?.id === this.id ? state.url : null;
+    const currentHistoryURL = (state?.target || state?.id) === this.id ? state.url : null;
     const url = options.url || currentHistoryURL || this.src || window.location.href;
     return this.loadURL(url, { method: "GET" }, {
       userInitiated: Boolean(options.userInitiated),
@@ -1296,7 +1309,10 @@ class Scope extends HTMLElement {
     try {
       const result = await (pending || start());
       if (useHistory && result.ok && !result.aborted) {
-        this.updateHistory(result.url || url, select, { replace: Boolean(context.autosubmit) });
+        this.updateHistory(result.url || url, select, {
+          replace: Boolean(context.autosubmit),
+          target: result.target && result.target !== this.id ? result.target : null
+        });
       }
       if (result.ok && !result.aborted) {
         const activeURL = useHistory ? window.location.href : isLink ? result.url || url : undefined;
@@ -1339,7 +1355,7 @@ class Scope extends HTMLElement {
     const options = {
       method: "GET",
       ...fetchOptions,
-      headers: mergeRequestHeaders(config.requestHeaders, fetchOptions.headers),
+      headers: mergeRequestHeaders(config.requestHeaders, scopeRequestHeaders(this, context.target), fetchOptions.headers),
       signal: combineSignals(controller, fetchOptions.signal, timeoutHandle?.signal)
     };
     const before = new CustomEvent("scope:before-load", {
@@ -1358,6 +1374,9 @@ class Scope extends HTMLElement {
       return { ok: false, aborted: true };
     }
     const operationId = this.#claimOperation();
+    const startedAt = context.startedAt ?? ++intentClock;
+    if (context.userInitiated)
+      this.#lastIntentAt = Math.max(this.#lastIntentAt, startedAt);
     this.#abortController = controller;
     this.#activeRequestId = requestId;
     setBusy(this, true);
@@ -1373,7 +1392,8 @@ class Scope extends HTMLElement {
         ...context,
         requestUrl: absoluteUrl,
         signal: options.signal,
-        operationId
+        operationId,
+        startedAt
       });
       if (this.#activeRequestId === requestId && !result.stale) {
         afterLoadStarted = true;
@@ -1508,7 +1528,23 @@ class Scope extends HTMLElement {
       const targetScope = document.getElementById(target);
       if (!(targetScope instanceof Scope))
         throw new Error(`Target scope not found: ${target}`);
+      if (targetScope.#lastIntentAt > (context.startedAt ?? 0)) {
+        return {
+          ok: false,
+          rendered: false,
+          aborted: true,
+          stale: true,
+          status,
+          userInitiated: context.userInitiated,
+          revalidating: context.revalidating,
+          source: this.id || null,
+          target: targetScope.id
+        };
+      }
       const operationId = targetScope.#claimOperation();
+      if (context.userInitiated && context.startedAt) {
+        targetScope.#lastIntentAt = Math.max(targetScope.#lastIntentAt, context.startedAt);
+      }
       setBusy(targetScope, true);
       setRevalidating(targetScope, Boolean(context.revalidating));
       try {
@@ -1568,6 +1604,13 @@ class Scope extends HTMLElement {
     });
   }
   async processParsedResponse(parsed, response, context = {}) {
+    const prepared = await this.#prepareSwap(parsed, response, context);
+    if (prepared.vetoed)
+      return prepared.vetoed;
+    this.#commitSwap(prepared);
+    return this.#settleSwap(prepared);
+  }
+  async#prepareSwap(parsed, response, context) {
     const operationId = context.operationId ?? this.#activeOperation;
     this.#assertOperation(operationId, context.signal);
     const replacement = this.selectReplacement(parsed, context.select);
@@ -1588,23 +1631,25 @@ class Scope extends HTMLElement {
     this.dispatchEvent(beforeSwap);
     if (beforeSwap.defaultPrevented) {
       return {
-        ok: response.ok,
-        rendered: false,
-        aborted: true,
-        status,
-        userInitiated: context.userInitiated,
-        revalidating: context.revalidating
+        vetoed: {
+          ok: response.ok,
+          rendered: false,
+          aborted: true,
+          status,
+          userInitiated: context.userInitiated,
+          revalidating: context.revalidating
+        }
       };
     }
     this.#assertOperation(operationId, context.signal);
     const scrollMode = enumOption(context.scroll || getConfig().scroll, ["top", "keep", "none", "hash"], "top", "scroll");
-    const restoreScroll = scrollMode === "keep" ? saveScrollPositions(this) : null;
     const fragment = createReplacementFragment(this, replacement.html);
     resolveFragmentURLs(fragment, response.url || context.requestUrl);
+    const prepared = { parsed, response, context, operationId, replacement, scrollMode };
     const swapSelector = this.getAttribute("scope-swap");
     if (swapSelector) {
-      const target = this.querySelector(swapSelector);
-      if (!target) {
+      const swapTarget = this.querySelector(swapSelector);
+      if (!swapTarget) {
         throw new Error(`scope-swap target not found: "${swapSelector}" in scope ${this.id || "(anonymous)"}`);
       }
       if (fragment.childElementCount !== 1) {
@@ -1613,56 +1658,34 @@ class Scope extends HTMLElement {
       const incoming = fragment.firstElementChild;
       this.#assertOperation(operationId, context.signal);
       await assets.loadRegisteredComponents(incoming, context.signal);
-      this.#assertOperation(operationId, context.signal);
-      const active = document.activeElement;
-      const preserveFocus = active instanceof Element && active !== document.body && this.contains(active) && !target.contains(active);
-      const releaseHeight = holdMinHeight(this);
-      target.replaceWith(incoming);
-      setTimeout(() => {
-        releaseHeight();
-      }, 0);
-      const detail = {
-        ok: response.ok,
-        rendered: true,
-        status,
-        url: response.url || context.requestUrl,
-        userInitiated: context.userInitiated,
-        revalidating: context.revalidating,
-        statusMessage: context.statusMessage,
-        alertMessage: context.alertMessage,
-        events: context.events || [],
-        focus: context.focus,
-        scroll: context.scroll,
-        source: context.source || this.id || null,
-        target: context.target || this.id || null
-      };
-      this.dispatchEvent(new CustomEvent("scope:after-swap", eventDetail(detail)));
-      if (!preserveFocus)
-        focusAfterSwap(this, detail);
-      if (restoreScroll)
-        restoreScroll();
-      else
-        scrollScope(this, scrollMode, detail.url);
-      announce(this, detail);
-      emitScopeEvents(this, context.events, {
-        source: detail.source,
-        target: detail.target,
-        status,
-        url: detail.url
-      });
-      return detail;
+      return { ...prepared, swapTarget, incoming };
     }
     const serverSnapshots = snapshotKeptElements(this, fragment);
     await assets.loadRegisteredComponents(fragment, context.signal);
+    return { ...prepared, fragment, serverSnapshots };
+  }
+  #commitSwap(prepared) {
+    const { parsed, context, operationId, replacement, scrollMode, swapTarget } = prepared;
     this.#assertOperation(operationId, context.signal);
+    prepared.restoreScroll = scrollMode === "keep" ? saveScrollPositions(this) : null;
+    if (swapTarget) {
+      const active = document.activeElement;
+      prepared.preserveFocus = active instanceof Element && active !== document.body && this.contains(active) && !swapTarget.contains(active);
+      const releaseHeight = holdMinHeight(this);
+      swapTarget.replaceWith(prepared.incoming);
+      setTimeout(() => {
+        releaseHeight();
+      }, 0);
+      return;
+    }
     if (replacement.scope)
       copyScopeAttributes(this, replacement.scope);
     const releaseHeight = holdMinHeight(this);
-    replaceChildren(this, fragment, swapKeptChildren);
+    replaceChildren(this, prepared.fragment, swapKeptChildren);
     setTimeout(() => {
       releaseHeight();
     }, 0);
-    rememberServerSnapshots(this, serverSnapshots);
+    rememberServerSnapshots(this, prepared.serverSnapshots);
     rememberKeptElements(this);
     if (parsed.isFullDocument && parsed.root instanceof Document) {
       const title = parsed.root.querySelector("title")?.textContent?.trim();
@@ -1673,6 +1696,10 @@ class Scope extends HTMLElement {
         copyBodyAttributes(parsed.root.body);
       }
     }
+  }
+  #settleSwap(prepared) {
+    const { response, context, scrollMode, restoreScroll } = prepared;
+    const status = response.status;
     const detail = {
       ok: response.ok,
       rendered: true,
@@ -1689,7 +1716,8 @@ class Scope extends HTMLElement {
       target: context.target || this.id || null
     };
     this.dispatchEvent(new CustomEvent("scope:after-swap", eventDetail(detail)));
-    focusAfterSwap(this, detail);
+    if (!prepared.preserveFocus)
+      focusAfterSwap(this, detail);
     if (restoreScroll)
       restoreScroll();
     else
@@ -1767,17 +1795,17 @@ class Scope extends HTMLElement {
       return parseBool(this.getAttribute("history"), true);
     return true;
   }
-  updateHistory(url, select = null, { replace = false } = {}) {
+  updateHistory(url, select = null, { replace = false, target = null } = {}) {
     const previous = history.state && typeof history.state === "object" ? history.state : {};
     if (previous.scope && sameHistoryURL(previous.scope.url, url))
       return;
     if (!previous.scope) {
       history.replaceState({
         ...previous,
-        scope: { id: this.id, url: window.location.href, select: null }
+        scope: { id: this.id, url: window.location.href, select: null, target }
       }, "", window.location.href);
     }
-    const state = { ...previous, scope: { id: this.id, url, select } };
+    const state = { ...previous, scope: { id: this.id, url, select, target } };
     if (replace)
       history.replaceState(state, "", url);
     else
@@ -1822,7 +1850,7 @@ window.addEventListener("popstate", (event) => {
   }
   const scope = document.getElementById(state.id);
   if (scope instanceof Scope) {
-    scope.loadURL(state.url, { method: "GET" }, { userInitiated: true, select: state.select }).then((result) => {
+    scope.loadURL(state.url, { method: "GET" }, { userInitiated: true, select: state.select, target: state.target || null }).then((result) => {
       if (!result.rendered && !result.ok && !result.aborted && !result.stale) {
         window.location.replace(window.location.href);
       }
