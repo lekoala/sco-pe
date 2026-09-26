@@ -507,8 +507,8 @@ History state stores one owning scope per browser entry. In a multi-scope admin 
 - [Security notes](docs/security.md) — trust model, CSP, Trusted Types status.
 - [Upgrade notes](docs/upgrade-notes.md) — migration from 0.1 and the late
   0.2 stabilizations.
-- [Multi-target design](docs/multi-target.md) — deferred beyond v0.2; the
-  conditions under which it would be implemented.
+- [Multi-target design](docs/multi-target.md) — designed, not implemented;
+  when to use it, failure rules and implementation order.
 - [sco-pe and htmx 4](docs/vs-htmx-4.md) — locality of navigation vs locality
   of behavior.
 - [sco-pe and Stimulus](docs/vs-stimulus.md) — navigation layer vs behavior
