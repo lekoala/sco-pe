@@ -1,4 +1,30 @@
-# Upgrade notes from 0.1
+# Upgrade notes
+
+## From 0.2 to 0.3
+
+No markup or API change is required. Check these points:
+
+- **New request headers.** Every request now sends `Scope-Source` (id of the
+  requesting scope) and `Scope-Target` (id of the scope the response lands
+  in). Endpoints may ignore them. If a response depends on them, add them to
+  `Vary` or make it uncacheable. Proxies or firewalls that filter request
+  headers by allowlist must let them through, like `Scope-Request`.
+- **Late routed responses are dropped.** When a response routed by the
+  `target` attribute or `Scope-Target` arrives after the user started a
+  navigation on the target scope, it is discarded: no swap, no history entry
+  and no `scope:load` on the source. Code that waited for that `scope:load`
+  should not assume every routed request ends with one.
+- **History state records the target.** `history.state.scope` gains a
+  `target` field for navigations from a scope with `target`. Back/forward now
+  restores into that target instead of the source.
+- **`reload()` on a targeted source.** `reload()` / `revalidate()` on a scope
+  whose navigation targets another scope no longer reuses the history URL,
+  which describes the target's content. It reloads its own `src`, or the
+  current URL with `Scope-Target` set to itself.
+
+## From 0.1 to 0.2
+
+The rest of this document covers the migration from 0.1.
 
 ## Late 0.2 stabilizations
 

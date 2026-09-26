@@ -513,8 +513,8 @@ History state stores one owning scope per browser entry. In a multi-scope admin 
   representation, `Scope-*` headers, `422` / `204` / `205` / `304`,
   `Vary: Scope-Request`, CSRF, and a framework-neutral PSR-7 example.
 - [Security notes](docs/security.md) — trust model, CSP, Trusted Types status.
-- [Upgrade notes](docs/upgrade-notes.md) — migration from 0.1 and the late
-  0.2 stabilizations.
+- [Upgrade notes](docs/upgrade-notes.md) — what to check from 0.2 to 0.3,
+  and the migration from 0.1.
 - [Multi-target design](docs/multi-target.md) — designed, not implemented;
   when to use it, failure rules and implementation order.
 - [sco-pe and htmx 4](docs/vs-htmx-4.md) — locality of navigation vs locality

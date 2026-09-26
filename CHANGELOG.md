@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.0
+
 - Sends `Scope-Source` (id of the requesting scope) and `Scope-Target` (id of
   the scope the response lands in) with every request, so endpoints can render
   only what the destination needs. Responses that depend on them must list

@@ -4,8 +4,13 @@ Status: designed, not implemented. `Scope-Target` routes a whole response to a
 single other scope, which remains the current model.
 
 Implement only when a representative application flow requires one response to
-update multiple independent scopes and `Scope-Target` would otherwise require
-an additional request or application-specific glue.
+update multiple independent scopes and the simpler path is not good enough.
+
+Try first: route the main response with `Scope-Target` (or a larger scope),
+emit `Scope-Event`, and let secondary scopes call `revalidate()`. The reload
+request carries `Scope-Target` set to the reloading scope, so the server can
+render just that region, even for a scope without its own `src`. Multi-target
+only saves that extra request and the short visual gap between the updates.
 
 ## Same scope first
 
