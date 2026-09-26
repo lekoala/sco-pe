@@ -81,6 +81,10 @@ normal request      → full HTML page
 Scope-Request: true → HTML suitable for the scope
 ```
 
+Requests also send `Scope-Source` (the requesting scope) and `Scope-Target`
+(the scope the response lands in), so an endpoint can render only what that
+destination needs.
+
 Both representations carry the same logical content; the fragment is a
 transport optimization. Alternatively, keep returning full pages and let
 `select` extract the scope.
@@ -106,6 +110,10 @@ per-element interaction behavior or client-side state:
   is the closer comparison as a navigation layer. sco-pe pairs the same way
   with behavior layers: server navigation here, application behavior there.
   See [sco-pe and Stimulus](docs/vs-stimulus.md).
+- **Unpoly** is a broader server-driven runtime: global fragment targeting,
+  layers, caching and a component lifecycle. sco-pe keeps a few explicit
+  navigation boundaries and leaves those concerns to the platform. See
+  [sco-pe and Unpoly](docs/vs-unpoly.md).
 - Richer widgets belong in custom elements or external modules loaded through
   `Scope-Script`, not in the navigation runtime.
 
@@ -513,6 +521,8 @@ History state stores one owning scope per browser entry. In a multi-scope admin 
   of behavior.
 - [sco-pe and Stimulus](docs/vs-stimulus.md) — navigation layer vs behavior
   layer, and how the two combine.
+- [sco-pe and Unpoly](docs/vs-unpoly.md) — explicit navigation boundaries vs a
+  global fragment runtime, and which Unpoly lessons apply.
 - [Demo guide](docs/demos.md) — what each page under `/static` demonstrates.
 
 ## Tests

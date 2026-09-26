@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Sends `Scope-Source` (id of the requesting scope) and `Scope-Target` (id of
+  the scope the response lands in) with every request, so endpoints can render
+  only what the destination needs. Responses that depend on them must list
+  them in `Vary`.
+- `reload()` / `revalidate()` on the source of a targeted navigation no longer
+  reuses the history URL, which describes the target's content.
 - Fixes a routed response (`target` attribute or `Scope-Target`) that arrived
   late overwriting a navigation the user started on the target scope after the
   routed request began. The latest user intent now owns the target.

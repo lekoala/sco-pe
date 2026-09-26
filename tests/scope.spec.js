@@ -667,6 +667,41 @@ test("back/forward restores a targeted navigation into its target scope", async 
   await expect(page.locator("sco-pe#main > h1")).toHaveText("Target one");
 });
 
+test("requests carry Scope-Source and Scope-Target", async ({ page }) => {
+  const seen = [];
+  page.on("request", (request) => {
+    const headers = request.headers();
+    if (headers["scope-request"]) {
+      seen.push({
+        path: new URL(request.url()).pathname,
+        source: headers["scope-source"],
+        target: headers["scope-target"],
+      });
+    }
+  });
+
+  await page.goto("/history");
+  await page.locator("#history-one").click();
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("History one");
+  expect(seen.at(-1)).toEqual({ path: "/history-one", source: "main", target: "main" });
+
+  await page.goto("/target-history");
+  await page.locator("#target-history-one").click();
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Target one");
+  expect(seen.at(-1)).toEqual({ path: "/target-history-one", source: "sidebar", target: "main" });
+
+  await page.locator("#target-history-two").click();
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Target two");
+  await page.goBack();
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Target one");
+  expect(seen.at(-1)).toEqual({ path: "/target-history-one", source: "sidebar", target: "main" });
+
+  // A reload refreshes the scope's own content: it lands in the scope itself.
+  await page.evaluate(() => document.getElementById("main").revalidate());
+  await expect.poll(() => seen.at(-1)?.source).toBe("main");
+  expect(seen.at(-1).target).toBe("main");
+});
+
 test("a canceled scope-swap leaves the DOM untouched", async ({ page }) => {
   await page.goto("/swap-cancel");
   await page.evaluate(() => {

@@ -34,8 +34,8 @@ Scope-Target                  the whole response belongs to another scope
 Scope-Event       "A domain fact happened. Interested consumers may react."
 ```
 
-A region that may or may not be on the page is a `Scope-Event` consumer, not a
-partial.
+A region that may or may not be on the page is either a `Scope-Event`
+consumer or an `optional` partial (see Optional partials).
 
 ## Wire format
 
@@ -122,7 +122,8 @@ Three kinds of failure, three outcomes.
 **Invalid response: nothing is committed.** The response is refused as a whole
 when any of these holds, and the source reports `scope:error`:
 
-- a target does not exist or is not a `<sco-pe>`;
+- a required target does not exist or is not a `<sco-pe>` (see Optional
+  partials);
 - the same target appears twice;
 - a `select` matches nothing;
 - a target's `scope-swap` contract is not met (missing local child, not exactly
@@ -191,24 +192,44 @@ prepare.
   as it answered the original one, so the same partials come back.
 - Partials never push or replace history on their own.
 
-## Open question: request headers
+## Request context
 
-The server decides which partials to emit. Today it only receives
-`Scope-Request: true`, and the server contract deliberately sends no scope id,
-to avoid coupling controllers to page layout.
-
-Multi-target weakens that argument: a response naming `main`, `sidebar` and
-`stats` is already coupled to those ids. Candidate headers:
+Every sco-pe request already tells the server who asked and where the
+navigation lands (see the server contract):
 
 ```http
+Scope-Request: true
 Scope-Source: sidebar
 Scope-Target: main
 ```
 
-Decide when implementing, from a real flow. If they are added, a response that
-depends on them must send `Vary: Scope-Request, Scope-Source, Scope-Target` or
-be uncacheable, and the reuse of the `Scope-Target` name for a request header
-must be weighed against confusion with the response header.
+The server uses them to decide which partials to emit. A response that depends
+on them must list them in `Vary` or be uncacheable.
+
+## Optional partials
+
+The server chooses the partials but cannot see the client's layout: a region
+such as `stats` may exist on some pages and not on others. A partial may be
+marked optional:
+
+```html
+<scope-partial target="stats" optional>
+  ...
+</scope-partial>
+```
+
+The escape hatch is deliberately narrow:
+
+- an optional partial is skipped **only when no scope with that id exists** in
+  the document;
+- every other failure stays fail-closed: a `select` that matches nothing, an
+  unmet `scope-swap` contract, a duplicate target;
+- a partial aimed at the navigation target is never optional; `optional` on it
+  is ignored.
+
+Use `optional` when the server already has the HTML and a second request would
+be waste. When the region can fetch its own content, `Scope-Event` remains the
+simpler choice.
 
 ## Security
 
@@ -251,7 +272,6 @@ without moving focus, and browser history gained a single entry owned by
 
 ## Deferred
 
-- `optional` partials, until a real flow shows that `Scope-Event` does not fit.
 - A `primary` attribute to override the derived primary target.
 - Splitting the body through repeated or combined `Scope-*` headers.
 - Per-target history entries and back/forward state.

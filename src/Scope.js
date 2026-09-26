@@ -36,11 +36,23 @@ function parseBool(value, fallback = false) {
   return ["1", "true", true, 1, "yes"].includes(value);
 }
 
-function mergeRequestHeaders(base, override) {
-  const headers = new Headers(base || {});
-  new Headers(override || {}).forEach((value, name) => {
-    headers.set(name, value);
-  });
+function mergeRequestHeaders(...sources) {
+  const headers = new Headers();
+  for (const source of sources) {
+    new Headers(source || {}).forEach((value, name) => {
+      headers.set(name, value);
+    });
+  }
+  return headers;
+}
+
+// Tells the server which scope asked and where the response will land, so it
+// can render only what that destination needs.
+function scopeRequestHeaders(scope, target) {
+  const headers = {};
+  const destination = target && target !== "_self" ? target : scope.id;
+  if (scope.id) headers["Scope-Source"] = scope.id;
+  if (destination) headers["Scope-Target"] = destination;
   return headers;
 }
 
@@ -502,7 +514,8 @@ export default class Scope extends HTMLElement {
 
   reload(options = {}) {
     const state = history.state?.scope;
-    const currentHistoryURL = state?.id === this.id ? state.url : null;
+    // A targeted entry describes the target's content, not the source's.
+    const currentHistoryURL = (state?.target || state?.id) === this.id ? state.url : null;
     const url = options.url || currentHistoryURL || this.src || window.location.href;
     return this.loadURL(
       url,
@@ -638,7 +651,11 @@ export default class Scope extends HTMLElement {
     const options = {
       method: "GET",
       ...fetchOptions,
-      headers: mergeRequestHeaders(config.requestHeaders, fetchOptions.headers),
+      headers: mergeRequestHeaders(
+        config.requestHeaders,
+        scopeRequestHeaders(this, context.target),
+        fetchOptions.headers,
+      ),
       signal: combineSignals(controller, fetchOptions.signal, timeoutHandle?.signal),
     };
 

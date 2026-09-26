@@ -10,14 +10,29 @@ A sco-pe fetch sends:
 
 ```http
 Scope-Request: true
+Scope-Source: sidebar
+Scope-Target: main
 Accept: text/html, application/xhtml+xml;q=0.9
 ```
 
-That is the whole built-in request contract. The server already knows the URL,
-the method, the query string and the form body. No scope id is sent: which DOM
-element initiated the request is client composition detail, and branching
-server output on it would couple controllers to page layout. Applications with
-a genuine need can add their own header through `requestHeaders`.
+- `Scope-Request` marks an enhanced request. It is the only header most
+  endpoints need.
+- `Scope-Source` is the id of the scope that owns the request. It is omitted
+  for a scope without an id.
+- `Scope-Target` is the id of the scope the response will land in: the
+  source's `target` attribute when it routes elsewhere, otherwise the source
+  itself. Back/forward restoration sends the same values as the original
+  navigation; `reload()` / `revalidate()` target the reloading scope.
+
+The server already knows the URL, the method, the query string and the form
+body. `Scope-Source` / `Scope-Target` are an optimization: they let an endpoint
+render only what the destination needs (for example the `main` fragment
+instead of a full layout) without guessing the current page layout. Keep the
+logical content the same whatever their value. A response that depends on them
+must say so in `Vary` (see Caching).
+
+Applications with other needs can add their own headers through
+`requestHeaders`.
 
 ```js
 Scope.configure({ requestHeaders: { "X-App-Section": "admin" } });
@@ -126,6 +141,10 @@ the document base, so prefer root-absolute paths there.
 Send `Vary: Scope-Request` only when the same URL genuinely produces two
 different representations depending on that header. Without it, a shared HTTP
 cache may serve a fragment to a full navigation or the reverse.
+
+The same rule applies to `Scope-Source` / `Scope-Target`: when the response
+depends on them, send `Vary: Scope-Request, Scope-Target` (and `Scope-Source`
+if it matters), or make the response uncacheable.
 
 ## CSRF
 
