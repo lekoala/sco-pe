@@ -1,0 +1,108 @@
+# Project-specific sco-pe usage
+
+Copy this file to `PROJECT.md` beside `SKILL.md` and keep only decisions that are true for this application.
+
+This file narrows **how the application uses sco-pe**. It does not redefine sco-pe API.
+
+## Scope map
+
+```text
+main
+  - TODO
+
+sidebar
+  - TODO
+```
+
+## History ownership
+
+```text
+- TODO
+```
+
+Prefer one primary navigation owner unless the product genuinely has independent navigational histories.
+
+## Server representation policy
+
+Routes that return a different representation for `Scope-Request: true`:
+
+```text
+- TODO
+```
+
+Server helper / middleware conventions:
+
+```text
+- TODO
+```
+
+## Cache and Vary policy
+
+```text
+- TODO
+```
+
+## Status and alert regions
+
+```text
+status: TODO
+alert: TODO
+```
+
+## Targeting conventions
+
+```text
+scope-swap:
+- TODO
+
+Scope-Target:
+- TODO
+
+revalidate():
+- TODO
+```
+
+## Domain events
+
+```text
+- TODO
+```
+
+Keep these as signal names, not payload contracts.
+
+## Assets and components
+
+Registered custom elements / module mappings:
+
+```text
+- TODO
+```
+
+Dynamic `Scope-Script` / `Scope-Style` conventions:
+
+```text
+- TODO
+```
+
+## Dialog / overlay ownership
+
+```text
+- TODO
+```
+
+## Security / browser policy
+
+```text
+CSP:
+- TODO
+
+Trusted Types:
+- TODO
+
+Browser support:
+- TODO
+```
+
+## Local decisions
+
+Add only stable, reusable decisions that materially change implementation choices.
