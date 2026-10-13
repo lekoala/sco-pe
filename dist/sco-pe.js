@@ -332,9 +332,16 @@ function focusAfterSwap(scope, detail = {}) {
 }
 
 // src/url.js
-function expandURL(value) {
+function expandURL(value, base = document.baseURI) {
   const href = value == null ? "#" : String(value);
-  return new URL(href, document.baseURI);
+  return new URL(href, base);
+}
+function withHash(value, hash) {
+  const url = expandURL(value);
+  if (!hash || url.hash)
+    return url.href;
+  url.hash = hash;
+  return url.href;
 }
 function isSameOrigin(value) {
   return expandURL(value).origin === window.location.origin;
@@ -376,7 +383,7 @@ function decodeHeader(value) {
   if (!value)
     return value;
   try {
-    return decodeURIComponent(value.replace(/\+/g, " "));
+    return decodeURIComponent(value);
   } catch {
     return value;
   }
@@ -929,11 +936,11 @@ function scopeOption(name, scope, fallback = null) {
     return scope.getAttribute(name);
   return fallback;
 }
-function getAction(formOrLink, submitter = null) {
+function getAction(formOrLink, submitter = null, base = null) {
   if (submitter?.hasAttribute?.("formaction"))
     return submitter.getAttribute("formaction");
   if (formOrLink instanceof HTMLFormElement) {
-    return formOrLink.getAttribute("action") || window.location.href;
+    return formOrLink.getAttribute("action") || base || window.location.href;
   }
   return formOrLink.getAttribute("href");
 }
@@ -987,10 +994,10 @@ function plainTextFromFormData(formData) {
   return [...formData].map(([name, value]) => `${name}=${value instanceof File ? value.name : value}`).join(`\r
 `);
 }
-function buildRequest(trigger, event) {
+function buildRequest(trigger, event, base = null) {
   const submitter = submitterFrom(event);
-  const action = getAction(trigger, submitter);
-  const url = expandURL(action);
+  const action = getAction(trigger, submitter, base);
+  const url = expandURL(action, base || document.baseURI);
   const method = getMethod(trigger, submitter);
   const headers = {};
   let body = null;
@@ -1058,6 +1065,7 @@ function confirmationMessage(trigger, submitter = null) {
   return trigger.getAttribute?.("data-confirm") ?? null;
 }
 var intentClock = 0;
+var historyManaged = false;
 
 class Scope extends HTMLElement {
   #initialized = false;
@@ -1071,6 +1079,7 @@ class Scope extends HTMLElement {
   #lastIntentAt = 0;
   #pendingRequest = null;
   #autosubmitTimer = null;
+  #baseURL = null;
   static configure(next) {
     return configure(next);
   }
@@ -1108,6 +1117,7 @@ class Scope extends HTMLElement {
         return;
       }
       log(`Scope init ${this.id || "(no id)"}`);
+      const initialSrc = this.src;
       try {
         const initial = await this.loadContent({ checkExisting: true, userInitiated: false });
         if (!initial.rendered && !this.isConnected) {
@@ -1119,6 +1129,9 @@ class Scope extends HTMLElement {
         this.markActiveLinks();
         rememberKeptElements(this);
         log(`Scope ready ${this.id || "(no id)"}`);
+        if (this.src !== initialSrc) {
+          this.loadContent({ checkExisting: false, userInitiated: false });
+        }
       } catch (error) {
         this.#initializing = false;
         if (!this.isConnected)
@@ -1244,6 +1257,9 @@ class Scope extends HTMLElement {
   #requestInFlight() {
     return this.#abortController !== null;
   }
+  #resolveBase() {
+    return this.#baseURL || document.baseURI;
+  }
   #enqueueRequest(start) {
     const previous = this.#pendingRequest;
     if (previous) {
@@ -1283,7 +1299,7 @@ class Scope extends HTMLElement {
     return this.reload({ ...options, revalidate: true });
   }
   async load(trigger, event = null, context = {}) {
-    const { url, method, body, headers, submitter } = buildRequest(trigger, event);
+    const { url, method, body, headers, submitter } = buildRequest(trigger, event, this.#resolveBase());
     const isLink = trigger.matches?.("a[href]");
     const select = scopeOption("select", this);
     const scroll = enumOption(scopeOption("scroll", this, getConfig().scroll), ["top", "keep", "none", "hash"], "top", "scroll");
@@ -1308,14 +1324,15 @@ class Scope extends HTMLElement {
     }
     try {
       const result = await (pending || start());
-      if (useHistory && result.ok && !result.aborted) {
+      const historyEligible = useHistory || result.scopeLocation === true && this.shouldUseHistory();
+      if (historyEligible && result.ok && !result.aborted) {
         this.updateHistory(result.url || url, select, {
           replace: Boolean(context.autosubmit),
           target: result.target && result.target !== this.id ? result.target : null
         });
       }
       if (result.ok && !result.aborted) {
-        const activeURL = useHistory ? window.location.href : isLink ? result.url || url : undefined;
+        const activeURL = historyEligible ? window.location.href : isLink ? result.url || url : undefined;
         this.markActiveLinks(activeURL);
         const targetScope = result.target ? document.getElementById(result.target) : null;
         if (targetScope instanceof Scope && targetScope !== this) {
@@ -1449,7 +1466,11 @@ class Scope extends HTMLElement {
       alertMessage: responseHeaders.alertMessage ?? context.alertMessage
     };
     if (headerDetail.redirect) {
-      window.location.assign(expandURL(headerDetail.redirect).href);
+      const target = expandURL(headerDetail.redirect);
+      if (target.protocol !== "http:" && target.protocol !== "https:") {
+        throw new TypeError(`Refused to follow non-http(s) Scope-Redirect: ${headerDetail.redirect}`);
+      }
+      window.location.assign(target.href);
       return {
         ok: true,
         rendered: false,
@@ -1487,7 +1508,7 @@ class Scope extends HTMLElement {
         statusMessage: headerDetail.statusMessage,
         alertMessage: headerDetail.alertMessage
       });
-      return { ...redirected, redirected: headerDetail.location };
+      return { ...redirected, redirected: headerDetail.location, scopeLocation: true };
     }
     if (status === 204 || status === 205 || status === 304) {
       announce(this, headerDetail);
@@ -1642,7 +1663,8 @@ class Scope extends HTMLElement {
       };
     }
     this.#assertOperation(operationId, context.signal);
-    const scrollMode = enumOption(context.scroll || getConfig().scroll, ["top", "keep", "none", "hash"], "top", "scroll");
+    const explicitScroll = context.scroll || scopeOption("scroll", this);
+    const scrollMode = enumOption(explicitScroll || (context.userInitiated ? getConfig().scroll : "none"), ["top", "keep", "none", "hash"], "top", "scroll");
     const fragment = createReplacementFragment(this, replacement.html);
     resolveFragmentURLs(fragment, response.url || context.requestUrl);
     const prepared = { parsed, response, context, operationId, replacement, scrollMode };
@@ -1700,11 +1722,13 @@ class Scope extends HTMLElement {
   #settleSwap(prepared) {
     const { response, context, scrollMode, restoreScroll } = prepared;
     const status = response.status;
+    const resolvedURL = withHash(response.url || context.requestUrl, expandURL(context.requestUrl).hash);
+    this.#baseURL = resolvedURL;
     const detail = {
       ok: response.ok,
       rendered: true,
       status,
-      url: response.url || context.requestUrl,
+      url: resolvedURL,
       userInitiated: context.userInitiated,
       revalidating: context.revalidating,
       statusMessage: context.statusMessage,
@@ -1765,12 +1789,14 @@ class Scope extends HTMLElement {
         const swapTarget = swapSelector ? scope.querySelector(swapSelector) : null;
         return { scope, html: swapTarget ? swapTarget.outerHTML : scope.innerHTML };
       }
+      const wrapper = parsed.isFullDocument && root instanceof Document ? root.body : root;
+      if (wrapper?.firstElementChild?.localName === "sco-pe")
+        return null;
+    } else {
+      const firstScope = root.querySelector?.("sco-pe");
+      if (firstScope)
+        return { scope: firstScope, html: firstScope.innerHTML };
     }
-    const firstScope = root.querySelector?.("sco-pe");
-    if (!this.id && firstScope)
-      return { scope: firstScope, html: firstScope.innerHTML };
-    if (this.id && firstScope)
-      return null;
     if (parsed.isFullDocument && root instanceof Document && root.body) {
       return { scope: null, html: root.body.innerHTML };
     }
@@ -1796,6 +1822,7 @@ class Scope extends HTMLElement {
     return true;
   }
   updateHistory(url, select = null, { replace = false, target = null } = {}) {
+    historyManaged = true;
     const previous = history.state && typeof history.state === "object" ? history.state : {};
     if (previous.scope && sameHistoryURL(previous.scope.url, url))
       return;
@@ -1845,7 +1872,8 @@ window.addEventListener("popstate", (event) => {
   if (!state?.id || !state.url) {
     if (window.location.hash && focusHashTarget(document, window.location.href))
       return;
-    window.location.replace(window.location.href);
+    if (historyManaged)
+      window.location.replace(window.location.href);
     return;
   }
   const scope = document.getElementById(state.id);

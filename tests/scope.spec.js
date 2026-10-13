@@ -223,6 +223,8 @@ test("handles Scope-Location, Scope-Target and Scope-Redirect", async ({ page })
   await page.goto("/prg");
   await page.locator("#prg-form").evaluate((form) => form.requestSubmit());
   await expect(page.locator("sco-pe#main > h1")).toHaveText("PRG complete");
+  // POST-redirect-GET: the URL reflects the resource after Scope-Location.
+  await expect(page).toHaveURL(/\/prg-result$/);
 
   await page.goto("/target");
   await page.evaluate(() => {
@@ -1167,4 +1169,164 @@ test("transitions use the configured timeout when the attribute is absent", asyn
   await page.waitForTimeout(150);
   await expect(page.locator("sco-pe#main .scope-outgoing")).toHaveCount(1);
   await expect(page.locator("sco-pe#main .scope-outgoing")).toHaveCount(0, { timeout: 1500 });
+});
+
+test("back to a native anchor entry does not reload the document", async ({ page }) => {
+  await page.goto("/hash");
+  await page.evaluate(() => {
+    window.__marker = "kept";
+  });
+  await page.locator("#hash-link").click();
+  await expect(page).toHaveURL(/#section-2$/);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/hash$/);
+  expect(await page.evaluate(() => window.__marker)).toBe("kept");
+});
+
+test("back to an application pushState entry does not reload the document", async ({ page }) => {
+  await page.goto("/history");
+  await page.evaluate(() => {
+    window.__marker = "kept";
+    history.pushState({ tab: 2 }, "", "?tab=2");
+  });
+  await page.goBack();
+  await expect(page).toHaveURL(/\/history$/);
+  expect(await page.evaluate(() => window.__marker)).toBe("kept");
+});
+
+test("a revalidate keeps the scroll position of a scroll=none scope", async ({ page }) => {
+  await page.goto("/scroll-revalidate");
+  await expect(page.locator("sco-pe#side h1")).toHaveText("Side");
+  await page.evaluate(() => window.scrollTo(0, 2500));
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(2000);
+
+  await page.evaluate(() => document.getElementById("side").revalidate());
+  await expect(page.locator("sco-pe#side h1")).toHaveText("Side");
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(2000);
+});
+
+test("a lazy src load does not scroll the document to the top", async ({ page }) => {
+  await page.goto("/scroll-lazy");
+  await page.evaluate(() => window.scrollTo(0, 2500));
+  await expect(page.locator("sco-pe#w h1")).toHaveText("Lazy widget");
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(2000);
+});
+
+test("scroll=hash keeps a cross-page fragment in the URL and focuses it", async ({ page }) => {
+  await page.goto("/hash-nav");
+  await page.locator("#hash-nav-link").click();
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Hash target");
+  await expect(page).toHaveURL(/\/hash-target#sec3$/);
+  await expect(page.locator("#sec3")).toBeFocused();
+});
+
+test("refuses a javascript: Scope-Redirect", async ({ page }) => {
+  await page.goto("/redirect-js");
+  await page.evaluate(() => {
+    window.__pwned = 0;
+    window.__errors = 0;
+    document.addEventListener("scope:error", () => window.__errors++);
+  });
+  await page.locator("#js-redirect-link").click();
+  await expect.poll(() => page.evaluate(() => window.__errors)).toBe(1);
+  expect(await page.evaluate(() => window.__pwned)).toBe(0);
+  expect(new URL(page.url()).pathname).toBe("/redirect-js");
+});
+
+test("relative links and forms in a no-history src scope use the scope URL", async ({ page }) => {
+  const requests = [];
+  page.on("request", (request) => {
+    const requestUrl = new URL(request.url());
+    if (requestUrl.pathname.startsWith("/relative-links")) {
+      requests.push({
+        path: requestUrl.pathname,
+        search: requestUrl.search,
+        method: request.method(),
+      });
+    }
+  });
+
+  await page.goto("/relative-links-host");
+  await page.locator("#rel-link").click();
+  await expect(page.locator("sco-pe#w h1")).toHaveText("Widget page 2");
+  expect(requests).toContainEqual({
+    path: "/relative-links-widget",
+    search: "?page=2",
+    method: "GET",
+  });
+
+  await page.reload();
+  await expect(page.locator("sco-pe#w h1")).toHaveText("Widget");
+  await page.locator("#rel-form").evaluate((form) => form.requestSubmit());
+  await expect(page.locator("sco-pe#w h1")).toHaveText("Widget posted");
+  expect(requests).toContainEqual(
+    expect.objectContaining({ path: "/relative-links-widget", method: "POST" }),
+  );
+});
+
+test("honours a src change while the initial load is in flight", async ({ page }) => {
+  await page.goto("/src-swap-start");
+  await page.evaluate(() => {
+    document.getElementById("w").src = "/src-b-src";
+  });
+  await expect(page.locator("sco-pe#w h1")).toHaveText("B");
+});
+
+test("accepts a fragment that contains a nested scope", async ({ page }) => {
+  await page.goto("/nested-fragment");
+  await page.evaluate(() => {
+    window.__errors = 0;
+    document.addEventListener("scope:error", () => window.__errors++);
+  });
+  await page.locator("#nested-fragment-link").click();
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Inner page");
+  await expect(page.locator("sco-pe#main sco-pe#comments")).toHaveCount(1);
+  expect(await page.evaluate(() => window.__errors)).toBe(0);
+});
+
+test("does not turn literal + into spaces in Scope headers", async ({ page }) => {
+  await page.goto("/header-plus");
+  await page.locator("#header-plus-link").click();
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Header plus done");
+  await expect(page).toHaveTitle("C++ guide");
+  await expect(page.locator("#scope-status")).toHaveText("C++ module saved");
+});
+
+test("returning before an application pushState entry resynchronizes the content", async ({
+  page,
+}) => {
+  await page.goto("/history");
+  await page.evaluate(() => history.pushState({ tab: 2 }, "", "?tab=2"));
+  await page.locator("#history-one").click();
+  await expect(page).toHaveURL(/\/history-one$/);
+
+  await page.evaluate(() => history.go(-2));
+  await expect(page).toHaveURL(/\/history$/);
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("History start");
+});
+
+test("relative links honour an author base href", async ({ page }) => {
+  const requests = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (path.startsWith("/base-dir") || path === "/child") requests.push(path);
+  });
+
+  await page.goto("/base-href");
+  await expect(page.locator("sco-pe#main h1")).toHaveText("Base");
+  await page.locator("#base-link").click();
+  await expect(page.locator("sco-pe#main h1")).toHaveText("Base child");
+  expect(requests).toContain("/base-dir/child");
+  expect(requests).not.toContain("/child");
+});
+
+test("refuses a full document containing a different named scope", async ({ page }) => {
+  await page.goto("/full-mismatch-start");
+  await page.evaluate(() => {
+    window.__errors = 0;
+    document.addEventListener("scope:error", () => window.__errors++);
+  });
+  await page.locator("#full-mismatch-link").click();
+  await expect(page.locator("sco-pe#main > h1")).toHaveText("Full mismatch");
+  await expect.poll(() => page.evaluate(() => window.__errors)).toBe(1);
 });

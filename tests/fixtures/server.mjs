@@ -1653,6 +1653,203 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/scroll-revalidate") {
+    send(
+      res,
+      200,
+      page(`
+      <div style="height: 3000px">Spacer</div>
+      <sco-pe id="side" src="/scroll-revalidate-content" history="false" scroll="none"></sco-pe>
+    `),
+    );
+    return;
+  }
+
+  if (url.pathname === "/scroll-revalidate-content") {
+    send(res, 200, "<h1>Side</h1>");
+    return;
+  }
+
+  if (url.pathname === "/scroll-lazy") {
+    send(
+      res,
+      200,
+      page(`
+      <div style="height: 3000px">Spacer</div>
+      <sco-pe id="w" src="/scroll-lazy-content" history="false"></sco-pe>
+    `),
+    );
+    return;
+  }
+
+  if (url.pathname === "/scroll-lazy-content") {
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    send(res, 200, "<h1>Lazy widget</h1>");
+    return;
+  }
+
+  if (url.pathname === "/hash-nav") {
+    send(
+      res,
+      200,
+      page(
+        scope(
+          "Hash nav",
+          '<a id="hash-nav-link" href="/hash-target#sec3">Go</a>',
+          'history="true" scroll="hash"',
+        ),
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/hash-target") {
+    send(
+      res,
+      200,
+      scope("Hash target", '<div style="height: 800px"></div><h2 id="sec3">Section 3</h2>'),
+    );
+    return;
+  }
+
+  if (url.pathname === "/redirect-js") {
+    send(
+      res,
+      200,
+      page(scope("Redirect js", '<a id="js-redirect-link" href="/redirect-js-response">Leave</a>')),
+    );
+    return;
+  }
+
+  if (url.pathname === "/redirect-js-response") {
+    send(res, 204, "", { "Scope-Redirect": "javascript:window.__pwned=1;void 0" });
+    return;
+  }
+
+  if (url.pathname === "/relative-links-host") {
+    send(res, 200, page('<sco-pe id="w" history="false" src="/relative-links-widget"></sco-pe>'));
+    return;
+  }
+
+  if (url.pathname === "/relative-links-widget" && req.method === "POST") {
+    send(res, 200, "<h1>Widget posted</h1>");
+    return;
+  }
+
+  if (url.pathname === "/relative-links-widget") {
+    if (url.searchParams.get("page") === "2") {
+      send(res, 200, "<h1>Widget page 2</h1>");
+      return;
+    }
+    send(
+      res,
+      200,
+      '<h1>Widget</h1><a id="rel-link" href="?page=2">More</a><form id="rel-form" method="post"><button>Go</button></form>',
+    );
+    return;
+  }
+
+  if (url.pathname === "/src-swap-start") {
+    send(res, 200, page('<sco-pe id="w" src="/src-slow-a"></sco-pe>'));
+    return;
+  }
+
+  if (url.pathname === "/src-slow-a") {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    send(res, 200, "<h1>A</h1>");
+    return;
+  }
+
+  if (url.pathname === "/src-b-src") {
+    send(res, 200, "<h1>B</h1>");
+    return;
+  }
+
+  if (url.pathname === "/nested-fragment") {
+    send(
+      res,
+      200,
+      page(
+        scope(
+          "Nested start",
+          '<a id="nested-fragment-link" href="/nested-fragment-response">Load</a>',
+        ),
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/nested-fragment-response") {
+    send(res, 200, '<h1>Inner page</h1><sco-pe id="comments"><p>Comments</p></sco-pe>');
+    return;
+  }
+
+  if (url.pathname === "/header-plus") {
+    send(
+      res,
+      200,
+      page(scope("Header plus", '<a id="header-plus-link" href="/header-plus-response">Go</a>')),
+    );
+    return;
+  }
+
+  if (url.pathname === "/header-plus-response") {
+    send(res, 200, scope("Header plus done"), {
+      "Scope-Title": "C++ guide",
+      "Scope-Status": "C++ module saved",
+    });
+    return;
+  }
+
+  if (url.pathname === "/base-href") {
+    send(
+      res,
+      200,
+      `<!doctype html>
+<html lang="en">
+<head>
+  <base href="/base-dir/">
+  <title>sco-pe fixture</title>
+  <script type="module" src="/sco-pe.js"></script>
+</head>
+<body>
+  <div id="scope-status" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div id="scope-alert" role="alert" aria-atomic="true"></div>
+  <sco-pe id="main"><h1>Base</h1><a id="base-link" href="child">Child</a></sco-pe>
+</body>
+</html>`,
+    );
+    return;
+  }
+
+  if (url.pathname === "/base-dir/child") {
+    send(res, 200, "<h1>Base child</h1>");
+    return;
+  }
+
+  if (url.pathname === "/full-mismatch-start") {
+    send(
+      res,
+      200,
+      page(
+        scope(
+          "Full mismatch",
+          '<a id="full-mismatch-link" href="/full-mismatch-response">Load</a>',
+        ),
+      ),
+    );
+    return;
+  }
+
+  if (url.pathname === "/full-mismatch-response") {
+    send(
+      res,
+      200,
+      '<!doctype html><html><body><sco-pe id="other"><h1>Wrong scope</h1></sco-pe></body></html>',
+    );
+    return;
+  }
+
   const filePath = normalize(join(root, url.pathname));
   if (filePath.startsWith(root)) {
     try {

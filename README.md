@@ -212,7 +212,9 @@ none  do not scroll
 hash  focus and reveal the URL hash target when present
 ```
 
-To preserve a replaced scroll container, give it a stable `id`. Same-document hash links are not fetched; sco-pe leaves native navigation intact and only focuses the hash target for accessibility.
+To preserve a replaced scroll container, give it a stable `id`. Same-document hash links are not fetched; sco-pe leaves native navigation intact and only focuses the hash target for accessibility. For a cross-page link, `hash` keeps the requested fragment in the URL and reveals the target after the swap.
+
+The `scroll` attribute also applies to `reload()`, `revalidate()` and initial or lazy `src` loads. Only a user-initiated navigation falls back to the configured default (`top`) when the attribute is absent: a revalidation or a widget loading its `src` never scrolls the document.
 
 ## Autosubmit
 
@@ -390,6 +392,8 @@ Scope-Event: appointment.changed, patient.timeline.changed
 
 `Scope-Script` loads external ES modules with dynamic `import()`. Modules are deduped by absolute URL. Inline scripts from fetched HTML are ignored by design.
 
+`Scope-Redirect` performs a full browser navigation and only accepts `http:` / `https:` URLs, mirroring a browser `Location` header; a `javascript:` or `data:` value is refused with `scope:error`. Header values (`Scope-Status`, `Scope-Alert`, `Scope-Title`) are plain text, or percent-encoded with `encodeURIComponent` (`+` stays a literal `+`).
+
 The full endpoint contract — dual representation, `422` validation, `204` /
 `205` / `304`, `Vary: Scope-Request`, CSRF, `scope-swap` and concurrency rules,
 plus a framework-neutral PSR-7 example — lives in
@@ -506,6 +510,10 @@ When `Scope-Target` routes a response to another scope, the source owns the requ
 `stripHash` normalizes `/users/` and `/users` as the same URL for active-link and history comparisons.
 
 History state stores one owning scope per browser entry. In a multi-scope admin layout, enable navigational history on the main content scope and update secondary scopes through `Scope-Target`.
+
+`Scope-Location` is a scoped POST-redirect-GET: when a request, including an unsafe POST, reaches its final resource through that header, the browser history entry is updated to the loaded URL.
+
+Back/forward to a native anchor or an application `pushState` entry is left to the browser while the document is untouched, so History-API-based state survives scoped navigation. Once sco-pe has swapped content, such an entry reloads the page so the URL and the displayed content cannot diverge.
 
 ## Documentation
 

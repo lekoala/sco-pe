@@ -51,6 +51,13 @@ the same endpoint both ways and assert that both responses are usable. The
 representative fixture is `/admin-flow/users` in `tests/fixtures/server.mjs`
 with its Playwright coverage in `tests/scope.spec.js`.
 
+A scoped response may be either a bare fragment or a wrapped `<sco-pe id="…">`.
+When the response is itself another scope's wrapper — the fragment's root
+element, or the first element of a full document's `<body>` — and its `id` does
+not match the target scope, the swap fails closed so a wrong representation
+surfaces immediately. A bare fragment that merely contains nested `<sco-pe>`
+scopes is fine: only that top-level wrapper is compared against the scope id.
+
 ## Response headers
 
 ```http
@@ -68,12 +75,17 @@ Scope-Event: appointment.changed, patient.timeline.changed
 ```
 
 - `Scope-Status` / `Scope-Alert` mirror into the persistent `#scope-status` /
-  `#scope-alert` live regions and emit `scope:status` / `scope:alert`.
+  `#scope-alert` live regions and emit `scope:status` / `scope:alert`. Their
+  values are plain text, or percent-encoded with `encodeURIComponent` (a
+  literal `+` is not turned into a space).
 - `Scope-Title` sets `document.title`.
-- `Scope-Redirect` performs a full browser navigation. `Scope-Reload`
-  reloads the page.
+- `Scope-Redirect` performs a full browser navigation. Only `http:` / `https:`
+  URLs are followed, like a browser `Location` header; any other scheme is
+  refused with `scope:error`. `Scope-Reload` reloads the page.
 - `Scope-Location` loads the given URL into the current scope (scoped
-  redirect, e.g. POST-redirect-GET inside the region).
+  redirect, e.g. POST-redirect-GET inside the region). When the scope uses
+  history, the browser entry is updated to the loaded URL, so a POST that ends
+  here leaves the URL of the resource that is displayed.
 - `Scope-Script` / `Scope-Style` load external ES modules and stylesheets.
   Inline `<script>`, `<style>` and stylesheet `<link>` in fetched HTML are
   removed by design.
@@ -126,8 +138,13 @@ consequences follow:
 
 - Insertion-time resources in the fragment (`img`, `source`, `video`,
   `audio`, `track`, `iframe` `src`/`srcset`, `video` `poster`) are resolved
-  against the response URL by the client. Links and forms are unaffected:
-  they resolve lazily at interaction time, once history reflects the new URL.
+  against the response URL by the client.
+- Links and forms resolve lazily at interaction time, against the URL the
+  scope content came from (its last response URL), not against the host
+  document. This also holds for a scope without history (`history="false"` or
+  no `id`), where `window.location` never reflects the scope URL: a relative
+  `href`, or a `<form>` with no `action`, still resolves against the scope URL.
+  Prefer root-absolute URLs when the server cannot guarantee this.
 - During the swap itself, `window.location` still shows the previous URL. A
   component that needs the final URL must read it from `scope:load` /
   `afterLoad` (`detail.url`), not from `window.location` in
@@ -135,6 +152,11 @@ consequences follow:
 
 `Scope-Script`, `Scope-Style` and component-registry paths resolve against
 the document base, so prefer root-absolute paths there.
+
+A raw HTTP redirect (`301` / `302` / `303`) answered to a sco-pe request is
+followed by `fetch`, which does not update the browser history entry. Use
+`Scope-Location` on the POST response for a scoped POST-redirect-GET whose URL
+must be reflected.
 
 ## Caching
 

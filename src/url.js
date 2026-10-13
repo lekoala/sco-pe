@@ -1,6 +1,15 @@
-export function expandURL(value) {
+export function expandURL(value, base = document.baseURI) {
   const href = value == null ? "#" : String(value);
-  return new URL(href, document.baseURI);
+  return new URL(href, base);
+}
+
+// `fetch` drops the fragment, so a response URL never carries the hash of the
+// requested URL. Reattach it for history entries and `scroll="hash"`.
+export function withHash(value, hash) {
+  const url = expandURL(value);
+  if (!hash || url.hash) return url.href;
+  url.hash = hash;
+  return url.href;
 }
 
 export function isSameOrigin(value) {
@@ -50,7 +59,7 @@ export function splitHeader(value) {
 export function decodeHeader(value) {
   if (!value) return value;
   try {
-    return decodeURIComponent(value.replace(/\+/g, " "));
+    return decodeURIComponent(value);
   } catch {
     return value;
   }

@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+- Back/forward to a history entry sco-pe did not create (native anchor
+  navigation, application `pushState`) no longer reloads the page while the
+  document is still untouched, so History-API state survives scoped
+  navigation. Once sco-pe has swapped content, such an entry resynchronizes
+  the page so URL and content cannot diverge.
+- `reload()`, `revalidate()` and initial or lazy `src` loads honor the scope's
+  `scroll` attribute and never scroll the document to the top on their own;
+  the implicit `top` default now applies to user-initiated navigation only.
+- `Scope-Location` updates the browser history entry to the loaded URL, so a
+  POST that reaches its resource through it behaves as a scoped
+  POST-redirect-GET. A raw `301`/`302`/`303` followed by `fetch` still does
+  not (documented in the server contract).
+- `scroll="hash"` keeps the fragment of a cross-page link in the URL and
+  reveals the target after the swap.
+- `Scope-Redirect` only follows `http:` / `https:` URLs; any other scheme,
+  including `javascript:`, is refused with `scope:error`.
+- Relative links and forms in a scope resolve against the URL that scope came
+  from, including scopes without history (`history="false"` or no `id`), and
+  against the document base (including an author `<base href>`) before a scope
+  has loaded.
+- A `src` change during the initial load is now honored once the first load
+  settles.
+- A scoped fragment that contains nested `<sco-pe>` children is accepted; only
+  a fragment whose root is another scope's wrapper fails closed.
+- `Scope-Status` / `Scope-Alert` / `Scope-Title` no longer turn literal `+`
+  into spaces (values are plain text or `encodeURIComponent`-encoded).
+
 ## 0.3.0
 
 - Sends `Scope-Source` (id of the requesting scope) and `Scope-Target` (id of

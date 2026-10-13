@@ -14,6 +14,11 @@ before the swap. Executable dependencies travel through `Scope-Script` /
 up-front component registry. External assets are refused by default unless
 the application opts in.
 
+`Scope-Redirect` is the client-side equivalent of a `Location` header and is
+restricted to `http:` / `https:` URLs. A `javascript:` or `data:` value is
+refused with `scope:error`, just as a browser refuses to execute `javascript:`
+in a `Location` header.
+
 ## What stays the application's responsibility
 
 Inline event attributes (`onclick`, …), `javascript:` URLs and any other

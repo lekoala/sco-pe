@@ -27,6 +27,7 @@ import {
   isSameDocumentAnchor,
   splitHeader,
   stripHash,
+  withHash,
 } from "./url.js";
 
 const FORM_FIELD_SELECTOR = "input, select, textarea";
@@ -106,10 +107,10 @@ function scopeOption(name, scope, fallback = null) {
   return fallback;
 }
 
-function getAction(formOrLink, submitter = null) {
+function getAction(formOrLink, submitter = null, base = null) {
   if (submitter?.hasAttribute?.("formaction")) return submitter.getAttribute("formaction");
   if (formOrLink instanceof HTMLFormElement) {
-    return formOrLink.getAttribute("action") || window.location.href;
+    return formOrLink.getAttribute("action") || base || window.location.href;
   }
   return formOrLink.getAttribute("href");
 }
@@ -189,10 +190,10 @@ function plainTextFromFormData(formData) {
     .join("\r\n");
 }
 
-function buildRequest(trigger, event) {
+function buildRequest(trigger, event, base = null) {
   const submitter = submitterFrom(event);
-  const action = getAction(trigger, submitter);
-  const url = expandURL(action);
+  const action = getAction(trigger, submitter, base);
+  const url = expandURL(action, base || document.baseURI);
   const method = getMethod(trigger, submitter);
   const headers = {};
   let body = null;
@@ -272,6 +273,11 @@ function confirmationMessage(trigger, submitter = null) {
 // target received a newer user navigation after the routed request started.
 let intentClock = 0;
 
+// Set once sco-pe has written a history entry in this document. After that,
+// the DOM may no longer match a foreign entry (native anchor, application
+// `pushState`), so back/forward to such an entry must resynchronize the page.
+let historyManaged = false;
+
 export default class Scope extends HTMLElement {
   #initialized = false;
   #initializing = false;
@@ -284,6 +290,7 @@ export default class Scope extends HTMLElement {
   #lastIntentAt = 0;
   #pendingRequest = null;
   #autosubmitTimer = null;
+  #baseURL = null;
 
   static configure(next) {
     return configure(next);
@@ -330,6 +337,9 @@ export default class Scope extends HTMLElement {
         return;
       }
       log(`Scope init ${this.id || "(no id)"}`);
+      // `src` can change while the initial load is in flight; the attribute
+      // callback ignores it until init finishes, so re-check here.
+      const initialSrc = this.src;
       try {
         // `loadURL` reports cancellations as `{ aborted: true }` results
         // rather than throwing, so an abort must be detected here too.
@@ -346,6 +356,10 @@ export default class Scope extends HTMLElement {
         this.markActiveLinks();
         rememberKeptElements(this);
         log(`Scope ready ${this.id || "(no id)"}`);
+        // Honour a src that arrived during the initial load.
+        if (this.src !== initialSrc) {
+          this.loadContent({ checkExisting: false, userInitiated: false });
+        }
       } catch (error) {
         this.#initializing = false;
         // An initial load aborted by a detach is not a failure: stay
@@ -487,6 +501,14 @@ export default class Scope extends HTMLElement {
     return this.#abortController !== null;
   }
 
+  // Relative links and forms inside a fetched scope resolve against the URL
+  // that content came from, even when history is off and `window.location`
+  // still points at the host page. Until a scope loads, fall back to the
+  // document base so an author `<base href>` keeps working.
+  #resolveBase() {
+    return this.#baseURL || document.baseURI;
+  }
+
   #enqueueRequest(start) {
     const previous = this.#pendingRequest;
     if (previous) {
@@ -534,7 +556,11 @@ export default class Scope extends HTMLElement {
   }
 
   async load(trigger, event = null, context = {}) {
-    const { url, method, body, headers, submitter } = buildRequest(trigger, event);
+    const { url, method, body, headers, submitter } = buildRequest(
+      trigger,
+      event,
+      this.#resolveBase(),
+    );
     const isLink = trigger.matches?.("a[href]");
     const select = scopeOption("select", this);
     const scroll = enumOption(
@@ -591,7 +617,13 @@ export default class Scope extends HTMLElement {
     try {
       const result = await (pending || start());
 
-      if (useHistory && result.ok && !result.aborted) {
+      // A POST that reaches its final resource through Scope-Location is a
+      // scoped POST-redirect-GET: the URL must reflect the resource that is
+      // now displayed, even though the original request was unsafe.
+      const historyEligible =
+        useHistory || (result.scopeLocation === true && this.shouldUseHistory());
+
+      if (historyEligible && result.ok && !result.aborted) {
         this.updateHistory(result.url || url, select, {
           replace: Boolean(context.autosubmit),
           target: result.target && result.target !== this.id ? result.target : null,
@@ -599,7 +631,7 @@ export default class Scope extends HTMLElement {
       }
 
       if (result.ok && !result.aborted) {
-        const activeURL = useHistory
+        const activeURL = historyEligible
           ? window.location.href
           : isLink
             ? result.url || url
@@ -758,7 +790,16 @@ export default class Scope extends HTMLElement {
     };
 
     if (headerDetail.redirect) {
-      window.location.assign(expandURL(headerDetail.redirect).href);
+      // A `Scope-Redirect` is the client-side equivalent of a `Location`
+      // header, so apply the same scheme restriction a browser does: never
+      // execute `javascript:` / `data:` payloads.
+      const target = expandURL(headerDetail.redirect);
+      if (target.protocol !== "http:" && target.protocol !== "https:") {
+        throw new TypeError(
+          `Refused to follow non-http(s) Scope-Redirect: ${headerDetail.redirect}`,
+        );
+      }
+      window.location.assign(target.href);
       return {
         ok: true,
         rendered: false,
@@ -802,7 +843,7 @@ export default class Scope extends HTMLElement {
           alertMessage: headerDetail.alertMessage,
         },
       );
-      return { ...redirected, redirected: headerDetail.location };
+      return { ...redirected, redirected: headerDetail.location, scopeLocation: true };
     }
 
     if (status === 204 || status === 205 || status === 304) {
@@ -977,8 +1018,13 @@ export default class Scope extends HTMLElement {
     }
     this.#assertOperation(operationId, context.signal);
 
+    // Explicit context (a user navigation) wins, then the scope attribute, then
+    // the configured default. The implicit default only applies to
+    // user-initiated navigation: a revalidate or a lazy `src` load must never
+    // jump the document.
+    const explicitScroll = context.scroll || scopeOption("scroll", this);
     const scrollMode = enumOption(
-      context.scroll || getConfig().scroll,
+      explicitScroll || (context.userInitiated ? getConfig().scroll : "none"),
       ["top", "keep", "none", "hash"],
       "top",
       "scroll",
@@ -1069,11 +1115,18 @@ export default class Scope extends HTMLElement {
   #settleSwap(prepared) {
     const { response, context, scrollMode, restoreScroll } = prepared;
     const status = response.status;
+    // `fetch` drops the fragment of the requested URL; restore it so the
+    // history entry and `scroll="hash"` see the target the user asked for.
+    const resolvedURL = withHash(
+      response.url || context.requestUrl,
+      expandURL(context.requestUrl).hash,
+    );
+    this.#baseURL = resolvedURL;
     const detail = {
       ok: response.ok,
       rendered: true,
       status,
-      url: response.url || context.requestUrl,
+      url: resolvedURL,
       userInitiated: context.userInitiated,
       revalidating: context.revalidating,
       statusMessage: context.statusMessage,
@@ -1140,11 +1193,17 @@ export default class Scope extends HTMLElement {
         const swapTarget = swapSelector ? scope.querySelector(swapSelector) : null;
         return { scope, html: swapTarget ? swapTarget.outerHTML : scope.innerHTML };
       }
+      // Fail closed only when the response is itself another scope's wrapper
+      // (a real mismatch). A bare fragment may legitimately contain nested
+      // `<sco-pe>` children, so those must not be mistaken for the wrapper.
+      // For a full document the wrapper is the body's first child, not the
+      // document element itself.
+      const wrapper = parsed.isFullDocument && root instanceof Document ? root.body : root;
+      if (wrapper?.firstElementChild?.localName === "sco-pe") return null;
+    } else {
+      const firstScope = root.querySelector?.("sco-pe");
+      if (firstScope) return { scope: firstScope, html: firstScope.innerHTML };
     }
-
-    const firstScope = root.querySelector?.("sco-pe");
-    if (!this.id && firstScope) return { scope: firstScope, html: firstScope.innerHTML };
-    if (this.id && firstScope) return null;
 
     if (parsed.isFullDocument && root instanceof Document && root.body) {
       return { scope: null, html: root.body.innerHTML };
@@ -1178,6 +1237,7 @@ export default class Scope extends HTMLElement {
   updateHistory(url, select = null, { replace = false, target = null } = {}) {
     // `history.state.scope` is reserved by sco-pe. Every other property belongs
     // to the application and must survive scoped navigation.
+    historyManaged = true;
     const previous = history.state && typeof history.state === "object" ? history.state : {};
     if (previous.scope && sameHistoryURL(previous.scope.url, url)) return;
     if (!previous.scope) {
@@ -1226,8 +1286,13 @@ export default class Scope extends HTMLElement {
 window.addEventListener("popstate", (event) => {
   const state = event.state?.scope;
   if (!state?.id || !state.url) {
+    // An entry sco-pe never created: a native anchor navigation or an
+    // application `pushState`. Before any scoped navigation the document is
+    // untouched, so leave it alone (History-API state survives). Once sco-pe
+    // has swapped content, the DOM may no longer match a foreign entry, so
+    // resynchronize the page.
     if (window.location.hash && focusHashTarget(document, window.location.href)) return;
-    window.location.replace(window.location.href);
+    if (historyManaged) window.location.replace(window.location.href);
     return;
   }
 
