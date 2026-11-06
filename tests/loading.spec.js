@@ -221,14 +221,20 @@ test("polling suspends in hidden documents and preserves history, focus and scro
     document.body.style.minHeight = "6000px";
     const input = document.createElement("input");
     input.id = "outside";
+    input.style.cssText = "position: fixed; top: 0; left: 0";
     document.body.prepend(input);
-    input.focus();
+    // Firefox and WebKit can apply focus scrolling on a later rendering step.
+    // Keep the input in view and prevent setup from racing with the poll.
+    input.focus({ preventScroll: true });
     window.scrollTo(0, 500);
     Object.defineProperty(document, "hidden", { configurable: true, value: false });
     document.dispatchEvent(new Event("visibilitychange"));
     return { url: location.href, historyLength: history.length, scroll: scrollY };
   });
-  await page.clock.runFor(1000);
+  await page.clock.runFor(999);
+  await requestCount(page, 0);
+  expect(await page.evaluate(() => scrollY)).toBe(before.scroll);
+  await page.clock.runFor(1);
   await requestCount(page, 1);
   await expect(page.locator("#subject")).toHaveAttribute("aria-busy", "false");
   await expect(page.locator("#outside")).toBeFocused();
