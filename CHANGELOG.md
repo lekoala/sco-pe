@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- An initialized scope whose `src` changes while disconnected loads the latest
+  value on reconnect, without sending requests while detached.
+- Adds `loading="lazy"` for empty scopes with a `src`, using a 200px
+  IntersectionObserver margin while preserving prerendered content.
+- Adds `poll="30s"` (also `ms` and `m`) for periodic revalidation without
+  history, focus or scroll changes. Polling waits for active requests, pauses
+  in hidden documents, and stops on disconnect.
 - Back/forward to a history entry sco-pe did not create (native anchor
   navigation, application `pushState`) no longer reloads the page while the
   document is still untouched, so History-API state survives scoped

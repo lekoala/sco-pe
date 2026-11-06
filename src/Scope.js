@@ -102,6 +102,13 @@ function numberAttribute(el, name, fallback) {
   return Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
+function pollDuration(value) {
+  const match = /^(\d+(?:\.\d+)?)(ms|s|m)$/.exec(value?.trim() || "");
+  if (!match) return 0;
+  const duration = Number(match[1]) * { ms: 1, s: 1000, m: 60000 }[match[2]];
+  return Number.isFinite(duration) && duration > 0 && duration <= 2147483647 ? duration : 0;
+}
+
 function scopeOption(name, scope, fallback = null) {
   if (scope?.hasAttribute?.(name)) return scope.getAttribute(name);
   return fallback;
@@ -291,6 +298,11 @@ export default class Scope extends HTMLElement {
   #pendingRequest = null;
   #autosubmitTimer = null;
   #baseURL = null;
+  #disconnectedSrc = null;
+  #lazyObserver = null;
+  #lazyActivated = false;
+  #pollTimer = null;
+  #onVisibilityChange = () => this.#schedulePoll();
 
   static configure(next) {
     return configure(next);
@@ -301,7 +313,7 @@ export default class Scope extends HTMLElement {
   }
 
   static get observedAttributes() {
-    return ["src"];
+    return ["src", "loading", "poll"];
   }
 
   get src() {
@@ -318,14 +330,55 @@ export default class Scope extends HTMLElement {
     this.addEventListener("submit", this);
     this.addEventListener("input", this);
     this.addEventListener("change", this);
+    document.addEventListener("visibilitychange", this.#onVisibilityChange);
 
     // A custom element can be moved or temporarily detached. Reconnecting an
-    // already initialized scope must not reload its src or run setup twice.
+    // already initialized scope only reloads if its src changed while detached.
     // A reconnect while the initial load is still running joins it instead.
     if (this.#initialized || this.#initializing) {
       this.markActiveLinks();
+      if (this.#initialized && this.src !== this.#disconnectedSrc) {
+        this.loadContent({ checkExisting: false, userInitiated: false });
+      }
+      this.#schedulePoll();
       return;
     }
+
+    this.#startInitialLoad();
+  }
+
+  #startInitialLoad() {
+    // Defer the decision until after the current synchronous work. This does
+    // not wait for streamed HTML; loadContent checks existing content again.
+    queueMicrotask(() => this.#initialize());
+  }
+
+  #initialize() {
+    if (!this.isConnected || this.#initialized || this.#initializing) return;
+    this.#lazyObserver?.disconnect();
+    this.#lazyObserver = null;
+    if (
+      !this.#lazyActivated &&
+      this.getAttribute("loading") === "lazy" &&
+      this.src &&
+      isNodeEmpty(this) &&
+      typeof IntersectionObserver === "function"
+    ) {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (this.#lazyObserver !== observer || !entries.some((entry) => entry.isIntersecting)) {
+            return;
+          }
+          this.#lazyActivated = true;
+          this.#startInitialLoad();
+        },
+        { rootMargin: "200px" },
+      );
+      this.#lazyObserver = observer;
+      observer.observe(this);
+      return;
+    }
+    this.#lazyActivated = true;
     this.#initializing = true;
     const initToken = ++this.#initSequence;
 
@@ -378,11 +431,18 @@ export default class Scope extends HTMLElement {
         this.dispatchEvent(new CustomEvent("scope:error", eventDetail(result)));
         await getConfig().onError(this, result);
         await this.afterLoad(result);
+      } finally {
+        this.#schedulePoll();
       }
     });
   }
 
   disconnectedCallback() {
+    this.#disconnectedSrc = this.src;
+    this.#lazyObserver?.disconnect();
+    this.#lazyObserver = null;
+    clearTimeout(this.#pollTimer);
+    document.removeEventListener("visibilitychange", this.#onVisibilityChange);
     this.#initializing = false;
     this.abortLoading();
     clearTimeout(this.#autosubmitTimer);
@@ -393,10 +453,43 @@ export default class Scope extends HTMLElement {
   }
 
   attributeChangedCallback(name, oldValue, newValue) {
-    if (!this.#initialized || oldValue === newValue) return;
+    if (oldValue === newValue || !this.isConnected) return;
+    if (name === "poll") {
+      this.#schedulePoll();
+      return;
+    }
+    if (!this.#initialized) {
+      this.#startInitialLoad();
+      return;
+    }
     if (name === "src") {
       this.loadContent({ checkExisting: false, userInitiated: false });
     }
+  }
+
+  #schedulePoll() {
+    clearTimeout(this.#pollTimer);
+    const delay = pollDuration(this.getAttribute("poll"));
+    if (
+      !delay ||
+      !this.isConnected ||
+      !this.#initialized ||
+      this.#initializing ||
+      document.hidden
+    ) {
+      return;
+    }
+    this.#pollTimer = setTimeout(async () => {
+      if (this.#requestInFlight() || this.#activeOperation !== null) {
+        this.#schedulePoll();
+        return;
+      }
+      try {
+        await this.revalidate({ focus: "none", scroll: "none" });
+      } finally {
+        this.#schedulePoll();
+      }
+    }, delay);
   }
 
   handleEvent(event) {
@@ -710,6 +803,7 @@ export default class Scope extends HTMLElement {
     // Only an accepted load supersedes the current request. A canceled
     // navigation must not abort work that is already in flight.
     const operationId = this.#claimOperation();
+    clearTimeout(this.#pollTimer);
     // Redirect continuations keep the start of the original intent.
     const startedAt = context.startedAt ?? ++intentClock;
     if (context.userInitiated) this.#lastIntentAt = Math.max(this.#lastIntentAt, startedAt);
@@ -773,6 +867,7 @@ export default class Scope extends HTMLElement {
         this.#abortController = null;
         if (this.#isCurrentOperation(operationId)) this.#activeOperation = null;
         this.#flushPendingRequest();
+        this.#schedulePoll();
       }
     }
   }

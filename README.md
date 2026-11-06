@@ -148,6 +148,8 @@ Supported behavior attributes:
 
 ```txt
 src                 initial URL to load
+loading             eager|lazy, defer an empty scope's initial src until near the viewport
+poll                revalidate periodically, e.g. 30s, 500ms or 1m
 history             true/false, update browser history for safe requests
 select              selector to extract from full-document responses
 target              another <sco-pe id> or _self
@@ -166,6 +168,38 @@ disabled            leave links and forms to the browser (unless exactly "false"
 ```
 
 `select` always extracts the selected element's *content*, rather than injecting the selected wrapper element.
+
+## Lazy loading and polling
+
+```html
+<sco-pe id="notifications" src="/notifications" loading="lazy" poll="30s"></sco-pe>
+```
+
+`loading="lazy"` defers the initial `src` request until an empty scope comes
+within 200px of the viewport. It activates once; subsequent navigation and
+reloads work normally. Without `IntersectionObserver`, loading starts immediately.
+Give an empty scope layout space (for example `display: block; min-height: 4rem`)
+so it has a predictable position to observe.
+
+Existing HTML with a `src` is still treated as prerendered content, prepared
+immediately without an initial fetch. HTML placeholders follow this same rule;
+`loading="lazy"` does not replace them automatically.
+
+`poll` calls `revalidate()` after each interval without changing history,
+moving focus or scrolling, including when `focus` or `scroll` is configured on
+the scope. Positive durations require `ms`, `s` or `m` units and may include
+decimals; missing, invalid, zero or oversized values disable polling.
+The maximum interval is 2147483647ms.
+
+Polling starts after initialization (and lazy activation), waits for ongoing
+requests, and schedules the next interval after completion, including failures.
+It pauses while the document is hidden and resumes with a full interval when
+visible. Disconnecting stops observers, timers and active requests; reconnecting
+resumes polling. Changing or removing `poll` updates the schedule immediately.
+Retries keep the configured interval, with no automatic backoff or retry limit;
+choose an interval appropriate for the endpoint's load and failure behavior.
+If an initialized scope's `src` changes while disconnected, reconnecting loads
+the latest value. Reconnecting with an unchanged `src` keeps the current content.
 
 ## Confirmation
 
@@ -344,7 +378,7 @@ sco-pe[transitioning] .scope-outgoing-fade {
 
 ## Revalidation state
 
-There is no cache/revalidation engine. The runtime only exposes state for explicit reloads:
+There is no cache engine. Explicit reloads and `poll` use the same revalidation state:
 
 ```js
 document.querySelector("sco-pe#main").revalidate()

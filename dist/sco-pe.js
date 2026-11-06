@@ -931,6 +931,13 @@ function numberAttribute(el, name, fallback) {
   const value = Number(raw);
   return Number.isFinite(value) && value >= 0 ? value : fallback;
 }
+function pollDuration(value) {
+  const match = /^(\d+(?:\.\d+)?)(ms|s|m)$/.exec(value?.trim() || "");
+  if (!match)
+    return 0;
+  const duration = Number(match[1]) * { ms: 1, s: 1000, m: 60000 }[match[2]];
+  return Number.isFinite(duration) && duration > 0 && duration <= 2147483647 ? duration : 0;
+}
 function scopeOption(name, scope, fallback = null) {
   if (scope?.hasAttribute?.(name))
     return scope.getAttribute(name);
@@ -1080,6 +1087,11 @@ class Scope extends HTMLElement {
   #pendingRequest = null;
   #autosubmitTimer = null;
   #baseURL = null;
+  #disconnectedSrc = null;
+  #lazyObserver = null;
+  #lazyActivated = false;
+  #pollTimer = null;
+  #onVisibilityChange = () => this.#schedulePoll();
   static configure(next) {
     return configure(next);
   }
@@ -1087,7 +1099,7 @@ class Scope extends HTMLElement {
     return getConfig();
   }
   static get observedAttributes() {
-    return ["src"];
+    return ["src", "loading", "poll"];
   }
   get src() {
     return this.getAttribute("src");
@@ -1103,10 +1115,38 @@ class Scope extends HTMLElement {
     this.addEventListener("submit", this);
     this.addEventListener("input", this);
     this.addEventListener("change", this);
+    document.addEventListener("visibilitychange", this.#onVisibilityChange);
     if (this.#initialized || this.#initializing) {
       this.markActiveLinks();
+      if (this.#initialized && this.src !== this.#disconnectedSrc) {
+        this.loadContent({ checkExisting: false, userInitiated: false });
+      }
+      this.#schedulePoll();
       return;
     }
+    this.#startInitialLoad();
+  }
+  #startInitialLoad() {
+    queueMicrotask(() => this.#initialize());
+  }
+  #initialize() {
+    if (!this.isConnected || this.#initialized || this.#initializing)
+      return;
+    this.#lazyObserver?.disconnect();
+    this.#lazyObserver = null;
+    if (!this.#lazyActivated && this.getAttribute("loading") === "lazy" && this.src && isNodeEmpty(this) && typeof IntersectionObserver === "function") {
+      const observer = new IntersectionObserver((entries) => {
+        if (this.#lazyObserver !== observer || !entries.some((entry) => entry.isIntersecting)) {
+          return;
+        }
+        this.#lazyActivated = true;
+        this.#startInitialLoad();
+      }, { rootMargin: "200px" });
+      this.#lazyObserver = observer;
+      observer.observe(this);
+      return;
+    }
+    this.#lazyActivated = true;
     this.#initializing = true;
     const initToken = ++this.#initSequence;
     queueMicrotask(async () => {
@@ -1147,10 +1187,17 @@ class Scope extends HTMLElement {
         this.dispatchEvent(new CustomEvent("scope:error", eventDetail(result)));
         await getConfig().onError(this, result);
         await this.afterLoad(result);
+      } finally {
+        this.#schedulePoll();
       }
     });
   }
   disconnectedCallback() {
+    this.#disconnectedSrc = this.src;
+    this.#lazyObserver?.disconnect();
+    this.#lazyObserver = null;
+    clearTimeout(this.#pollTimer);
+    document.removeEventListener("visibilitychange", this.#onVisibilityChange);
     this.#initializing = false;
     this.abortLoading();
     clearTimeout(this.#autosubmitTimer);
@@ -1160,11 +1207,37 @@ class Scope extends HTMLElement {
     this.removeEventListener("change", this);
   }
   attributeChangedCallback(name, oldValue, newValue) {
-    if (!this.#initialized || oldValue === newValue)
+    if (oldValue === newValue || !this.isConnected)
       return;
+    if (name === "poll") {
+      this.#schedulePoll();
+      return;
+    }
+    if (!this.#initialized) {
+      this.#startInitialLoad();
+      return;
+    }
     if (name === "src") {
       this.loadContent({ checkExisting: false, userInitiated: false });
     }
+  }
+  #schedulePoll() {
+    clearTimeout(this.#pollTimer);
+    const delay = pollDuration(this.getAttribute("poll"));
+    if (!delay || !this.isConnected || !this.#initialized || this.#initializing || document.hidden) {
+      return;
+    }
+    this.#pollTimer = setTimeout(async () => {
+      if (this.#requestInFlight() || this.#activeOperation !== null) {
+        this.#schedulePoll();
+        return;
+      }
+      try {
+        await this.revalidate({ focus: "none", scroll: "none" });
+      } finally {
+        this.#schedulePoll();
+      }
+    }, delay);
   }
   handleEvent(event) {
     if (event.target.closest?.("sco-pe") !== this)
@@ -1391,6 +1464,7 @@ class Scope extends HTMLElement {
       return { ok: false, aborted: true };
     }
     const operationId = this.#claimOperation();
+    clearTimeout(this.#pollTimer);
     const startedAt = context.startedAt ?? ++intentClock;
     if (context.userInitiated)
       this.#lastIntentAt = Math.max(this.#lastIntentAt, startedAt);
@@ -1451,6 +1525,7 @@ class Scope extends HTMLElement {
         if (this.#isCurrentOperation(operationId))
           this.#activeOperation = null;
         this.#flushPendingRequest();
+        this.#schedulePoll();
       }
     }
   }
