@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 - An initialized scope whose `src` changes while disconnected loads the latest
   value on reconnect, without sending requests while detached.
